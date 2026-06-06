@@ -248,7 +248,8 @@ if game.GameId == 847722000 then
 	local function uiBoolSet(k, v)
 		cfgSet(k, v == true)
 	end
-
+	
+    st.flingRake = cfgBool("flingRake", false)
 	st.fov = cfgNum("fov", tonumber(_G.FieldOfView) or 70, 1, 120)
 	st.fovOn = cfgBool("fovOn", _G.enableFOV == true)
 	st.fovUiFix = cfgBool("fovUiFix", true)
@@ -6704,13 +6705,18 @@ if canCfg then
 end
 end
 
--- ================= 自动医疗包（血量低于阈值自动使用） =================
+-- ================= 自动医疗包（13秒长按，可边移动边治疗） =================
 local autoMed = {
 	enabled = false,
 	threshold = 0.4,
 	cooldown = 0,
-	cooldownTime = 3,
-	medkitNames = { "Medkit", "医疗包", "FirstAid", "Bandage", "MedKit", "Med", "Heal" },
+	cooldownTime = 16,           -- 冷却16秒（治疗13秒 + 3秒缓冲）
+	healing = false,             -- 是否正在治疗中
+	medkitNames = {
+		"FirstAidKit", "Medkit", "医疗包", "FirstAid", "Bandage", "MedKit", "Med", "Heal",
+		"药包", "绷带", "急救包", "治疗", "HealthPack"
+	},
+	holdDuration = 13,           -- 长按E 13秒
 }
 
 local function getHealthPercent()
@@ -6721,25 +6727,43 @@ local function getHealthPercent()
 	return 1
 end
 
-local function findMedkitTool()
-	local lp = Plrs.LocalPlayer
-	if not lp then return nil end
-	local char = lp.Character
+local function getCurrentTool()
+	local char = Plrs.LocalPlayer.Character
 	if char then
 		for _, tool in ipairs(char:GetChildren()) do
 			if tool:IsA("Tool") then
-				for _, medName in ipairs(autoMed.medkitNames) do
-					if string.find(tool.Name, medName, 1, true) then return tool end
-				end
+				return tool
 			end
 		end
 	end
+	return nil
+end
+
+local function findMedkitTool()
+	local lp = Plrs.LocalPlayer
+	if not lp then return nil end
+	-- 优先从背包查找
 	local backpack = lp:FindFirstChild("Backpack")
 	if backpack then
 		for _, tool in ipairs(backpack:GetChildren()) do
 			if tool:IsA("Tool") then
 				for _, medName in ipairs(autoMed.medkitNames) do
-					if string.find(tool.Name, medName, 1, true) then return tool end
+					if string.find(tool.Name, medName, 1, true) then
+						return tool
+					end
+				end
+			end
+		end
+	end
+	-- 其次从角色身上查找（防止已装备）
+	local char = lp.Character
+	if char then
+		for _, tool in ipairs(char:GetChildren()) do
+			if tool:IsA("Tool") then
+				for _, medName in ipairs(autoMed.medkitNames) do
+					if string.find(tool.Name, medName, 1, true) then
+						return tool
+					end
 				end
 			end
 		end
@@ -6747,38 +6771,73 @@ local function findMedkitTool()
 	return nil
 end
 
+-- 模拟长按E键（不会打断移动）
+local function holdE(duration)
+	local uis = game:GetService("UserInputService")
+	if not uis then return end
+	pcall(function()
+		uis:SetKeyDown(Enum.KeyCode.E)
+		task.wait(duration)
+		uis:SetKeyUp(Enum.KeyCode.E)
+	end)
+end
+
 local function useMedkit(tool)
 	if not tool then return false end
-	if tool.Parent == Plrs.LocalPlayer.Character then
-		pcall(function() tool:Activate() end)
-		return true
-	end
 	local hum = getHum()
-	if hum then
-		pcall(function()
-			hum:EquipTool(tool)
-			task.wait(0.05)
-			tool:Activate()
-		end)
-		return true
+	if not hum then return false end
+
+	-- 记录当前工具
+	local previousTool = getCurrentTool()
+	
+	-- 装备医疗包
+	local success = pcall(function() hum:EquipTool(tool) end)
+	if not success then return false end
+	task.wait(0.1)
+
+	-- 开始治疗（长按E）
+	autoMed.healing = true
+	
+	-- 尝试直接激活，如果无效则长按E
+	local activated = pcall(function() tool:Activate() end)
+	if not activated then
+		holdE(autoMed.holdDuration)
+	else
+		-- 如果Activate存在但需要长按，仍然执行长按
+		task.wait(autoMed.holdDuration)
 	end
-	return false
+	
+	-- 等待治疗效果生效
+	task.wait(0.3)
+	autoMed.healing = false
+
+	-- 恢复之前的工具
+	if previousTool and previousTool ~= tool then
+		pcall(function() hum:EquipTool(previousTool) end)
+	end
+	return true
 end
 
 local function tryUseMedkit()
 	if not autoMed.enabled then return end
+	if autoMed.healing then return end          -- 正在治疗中，不重复触发
 	if autoMed.cooldown > 0 then return end
 	if getHealthPercent() >= autoMed.threshold then return end
+
 	local medkit = findMedkitTool()
-	if medkit and useMedkit(medkit) then
+	if medkit then
+		useMedkit(medkit)
 		autoMed.cooldown = autoMed.cooldownTime
 		if type(Obsidian) == "table" and Obsidian.Notify then
 			Obsidian:Notify({
-				Title = "Auto Med",
-				Content = "Used medkit",
-				Duration = 1,
+				Title = "自动医疗",
+				Content = "治疗中，请移动 13 秒",
+				Duration = 2,
 			})
 		end
+		print("[AutoMed] 开始治疗 (13秒)，可自由移动")
+	else
+		print("[AutoMed] 未找到医疗包")
 	end
 end
 
@@ -6802,12 +6861,57 @@ end
 
 function setAutoMedEnabled(enabled)
 	autoMed.enabled = enabled == true
-	if not autoMed.enabled then autoMed.cooldown = 0 end
+	if not autoMed.enabled then
+		autoMed.cooldown = 0
+		autoMed.healing = false
+	end
 end
 
 function setAutoMedThreshold(value)
 	autoMed.threshold = math.clamp(value / 100, 0.1, 0.9)
 end
+
+-- 从配置同步
+if st.autoMed then setAutoMedEnabled(st.autoMed) end
+if st.medThreshold then setAutoMedThreshold(st.medThreshold) end
+
+task.spawn(startAutoMed)
+
+-- 添加 UI 控件
+task.spawn(function()
+	for i = 1, 10 do
+		if type(PlayerTab) == "table" and type(PlayerTab.CreateToggle) == "function" then
+			break
+		end
+		task.wait(0.5)
+	end
+	if type(PlayerTab) ~= "table" then return end
+
+	PlayerTab:CreateToggle({
+		Name = "Auto Use Medkit",
+		CurrentValue = st.autoMed == true,
+		Flag = "AutoMed",
+		Callback = function(state)
+			st.autoMed = state == true
+			cfgSet("autoMed", st.autoMed)
+			setAutoMedEnabled(st.autoMed)
+		end,
+	})
+
+	PlayerTab:CreateSlider({
+		Name = "Medkit Health Threshold",
+		Range = {30, 70},
+		Increment = 5,
+		CurrentValue = st.medThreshold or 40,
+		Flag = "MedThreshold",
+		Callback = function(v)
+			st.medThreshold = math.clamp(tonumber(v) or 40, 30, 70)
+			cfgSet("medThreshold", st.medThreshold)
+			setAutoMedThreshold(st.medThreshold)
+		end,
+	})
+end)
+-- ==============================================
 
 -- 从配置同步初始值
 if st.autoMed then setAutoMedEnabled(st.autoMed) end
@@ -7205,4 +7309,481 @@ task.spawn(function()
     task.wait(1.5)
     translateUI()
 end)
+-- ==============================================
+-- ================= 新增功能模块：飞行 / 免疫陷阱 / 电击棍无冷却 / 增加攻击距离 =================
+
+-- ================= 1. 飞行功能（按 X 键切换，方向键控制） =================
+local fly = {
+	enabled = false,
+	active = false,
+	speed = 50,
+	keys = {
+		[Enum.KeyCode.W] = false,
+		[Enum.KeyCode.S] = false,
+		[Enum.KeyCode.A] = false,
+		[Enum.KeyCode.D] = false,
+		[Enum.KeyCode.Space] = false,
+		[Enum.KeyCode.LeftControl] = false,
+	},
+}
+
+local function updateFly()
+	if not fly.active then return end
+	local hrp = GET_HRP()
+	if not hrp then return end
+	local move = Vector3.new(0, 0, 0)
+	local speed = fly.speed * (game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.LeftShift) and 2.5 or 1)
+	if fly.keys[Enum.KeyCode.W] then move = move + hrp.CFrame.LookVector end
+	if fly.keys[Enum.KeyCode.S] then move = move - hrp.CFrame.LookVector end
+	if fly.keys[Enum.KeyCode.A] then move = move - hrp.CFrame.RightVector end
+	if fly.keys[Enum.KeyCode.D] then move = move + hrp.CFrame.RightVector end
+	if fly.keys[Enum.KeyCode.Space] then move = move + Vector3.new(0, 1, 0) end
+	if fly.keys[Enum.KeyCode.LeftControl] then move = move - Vector3.new(0, 1, 0) end
+	hrp.CFrame = hrp.CFrame + move.Unit * speed * (game:GetService("RunService").Heartbeat:Wait())
+	local hum = getHum()
+	if hum then
+		hum.PlatformStand = true
+		hum.AutoRotate = false
+	end
+end
+
+local function onFlyKeyPress(input)
+	if not fly.enabled then return end
+	local key = input.KeyCode
+	if fly.keys[key] ~= nil then
+		fly.keys[key] = true
+	elseif key == Enum.KeyCode.X then
+		fly.active = not fly.active
+		local hum = getHum()
+		if hum then
+			hum.PlatformStand = fly.active
+			hum.AutoRotate = not fly.active
+			if not fly.active then
+				hum.Sit = false
+			end
+		end
+		local pg = clientBypass.getPlayerGui()
+		if pg then
+			local gui = pg:FindFirstChild("FlyStatus")
+			if not gui then
+				gui = Instance.new("TextLabel")
+				gui.Name = "FlyStatus"
+				gui.Size = UDim2.new(0, 150, 0, 30)
+				gui.Position = UDim2.new(1, -160, 0, 50)
+				gui.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+				gui.BackgroundTransparency = 0.5
+				gui.TextColor3 = Color3.fromRGB(255, 255, 255)
+				gui.Font = Enum.Font.SourceSansBold
+				gui.TextSize = 14
+				gui.Parent = pg
+			end
+			gui.Text = fly.active and "✈️ 飞行模式 ON" or "🦶 飞行模式 OFF"
+			gui.Visible = true
+			if not fly.active then
+				task.delay(3, function() if gui and not fly.active then gui.Visible = false end end)
+			end
+		end
+	end
+end
+
+local function onFlyKeyRelease(input)
+	if not fly.enabled then return end
+	local key = input.KeyCode
+	if fly.keys[key] ~= nil then
+		fly.keys[key] = false
+	end
+end
+
+local function startFly()
+	local uis = game:GetService("UserInputService")
+	bind(uis.InputBegan, onFlyKeyPress)
+	bind(uis.InputEnded, onFlyKeyRelease)
+	task.spawn(function()
+		while true do
+			if fly.active and fly.enabled then
+				pcall(updateFly)
+			end
+			task.wait()
+		end
+	end)
+end
+
+function setFlyEnabled(enabled)
+	fly.enabled = enabled == true
+	if not fly.enabled and fly.active then
+		fly.active = false
+		local hum = getHum()
+		if hum then
+			hum.PlatformStand = false
+			hum.AutoRotate = true
+		end
+	end
+end
+
+if st.fly == nil then st.fly = false end
+setFlyEnabled(st.fly)
+task.spawn(startFly)
+
+-- ================= 2. 免疫陷阱伤害 =================
+local trapImmunityEnabled = false
+local function antiTrap()
+	local hum = getHum()
+	if not hum or not hum.Parent then return end
+	pcall(function()
+		hum:SetAttribute("iTRPED", nil)
+		hum:SetAttribute("iTRPED3", nil)
+		hum:SetAttribute("TrapPos", nil)
+		hum:SetAttribute("TrapRelease", true)
+		if hum.Health > 0 then
+			hum.Health = hum.Health
+		end
+	end)
+	Run:UnbindFromRenderStep("YawBind")
+end
+
+local function startTrapImmunity()
+	bind(Run.Heartbeat, function()
+		if AllowRunService ~= true then return end
+		if trapImmunityEnabled then
+			antiTrap()
+		end
+	end)
+end
+
+function setTrapImmunity(enabled)
+	trapImmunityEnabled = enabled == true
+end
+
+if st.trapImmunity == nil then st.trapImmunity = false end
+setTrapImmunity(st.trapImmunity)
+task.spawn(startTrapImmunity)
+
+-- ================= 3. 电击棍无冷却 =================
+local noCooldownEnabled = false
+local function removeStunstickCooldown()
+	local lp = Plrs.LocalPlayer
+	local char = lp.Character
+	if not char then return end
+	local stun = nil
+	for _, tool in ipairs(char:GetChildren()) do
+		if tool:IsA("Tool") and (tool.Name == "StunStick" or string.find(tool.Name, "Stun")) then
+			stun = tool
+			break
+		end
+	end
+	if not stun then
+		local bp = lp:FindFirstChild("Backpack")
+		if bp then
+			for _, tool in ipairs(bp:GetChildren()) do
+				if tool:IsA("Tool") and (tool.Name == "StunStick" or string.find(tool.Name, "Stun")) then
+					stun = tool
+					break
+				end
+			end
+		end
+	end
+	if stun then
+		local cooldown = stun:FindFirstChild("Cooldown")
+		if cooldown and cooldown:IsA("NumberValue") then
+			cooldown.Value = 0
+		end
+		local attackCD = stun:FindFirstChild("AttackCD")
+		if attackCD and attackCD:IsA("NumberValue") then
+			attackCD.Value = 0
+		end
+	end
+end
+
+local function startNoCooldown()
+	bind(Run.Heartbeat, function()
+		if AllowRunService ~= true then return end
+		if noCooldownEnabled then
+			pcall(removeStunstickCooldown)
+		end
+	end)
+end
+
+function setNoCooldown(enabled)
+	noCooldownEnabled = enabled == true
+end
+
+if st.stickNoCD == nil then st.stickNoCD = false end
+setNoCooldown(st.stickNoCD)
+task.spawn(startNoCooldown)
+
+-- ================= 4. 增加攻击距离（扩大触碰部件） =================
+local extendRangeEnabled = false
+local function extendAttackRange()
+	local lp = Plrs.LocalPlayer
+	local char = lp.Character
+	if not char then return end
+	local weapon = nil
+	for _, tool in ipairs(char:GetChildren()) do
+		if tool:IsA("Tool") then
+			weapon = tool
+			break
+		end
+	end
+	if not weapon then return end
+	local hitPart = weapon:FindFirstChild("HitPart") or weapon:FindFirstChild("Handle") or weapon:FindFirstChildWhichIsA("BasePart")
+	if hitPart and hitPart:IsA("BasePart") then
+		local originalSize = hitPart:GetAttribute("OriginalSize")
+		if not originalSize then
+			hitPart:SetAttribute("OriginalSize", hitPart.Size)
+			originalSize = hitPart.Size
+		end
+		hitPart.Size = originalSize * 3
+		hitPart.CanTouch = true
+		hitPart.CanQuery = true
+	end
+end
+
+local function startExtendRange()
+	bind(Run.Heartbeat, function()
+		if AllowRunService ~= true then return end
+		if extendRangeEnabled then
+			pcall(extendAttackRange)
+		end
+	end)
+end
+
+function setExtendRange(enabled)
+	extendRangeEnabled = enabled == true
+end
+
+if st.extendRange == nil then st.extendRange = false end
+setExtendRange(st.extendRange)
+task.spawn(startExtendRange)
+
+-- ================= 添加 UI 开关（统一放置） =================
+task.spawn(function()
+	-- 等待标签页就绪
+	for i = 1, 15 do
+		if type(ClientTab) == "table" and type(ClientTab.CreateToggle) == "function" then
+			break
+		end
+		task.wait(0.5)
+	end
+
+	if type(ClientTab) == "table" then
+		ClientTab:CreateToggle({
+			Name = "飞行模式 (按 X 切换)",
+			CurrentValue = st.fly == true,
+			Flag = "FlyMod",
+			Callback = function(state)
+				st.fly = state == true
+				cfgSet("fly", st.fly)
+				setFlyEnabled(st.fly)
+			end,
+		})
+		ClientTab:CreateToggle({
+			Name = "免疫陷阱伤害",
+			CurrentValue = st.trapImmunity == true,
+			Flag = "TrapImmunity",
+			Callback = function(state)
+				st.trapImmunity = state == true
+				cfgSet("trapImmunity", st.trapImmunity)
+				setTrapImmunity(st.trapImmunity)
+			end,
+		})
+	end
+
+	if type(ExploitsTab) == "table" then
+		ExploitsTab:CreateToggle({
+			Name = "电击棍无冷却",
+			CurrentValue = st.stickNoCD == true,
+			Flag = "StickNoCD",
+			Callback = function(state)
+				st.stickNoCD = state == true
+				cfgSet("stickNoCD", st.stickNoCD)
+				setNoCooldown(st.stickNoCD)
+			end,
+		})
+		ExploitsTab:CreateToggle({
+			Name = "增加攻击距离",
+			CurrentValue = st.extendRange == true,
+			Flag = "ExtendRange",
+			Callback = function(state)
+				st.extendRange = state == true
+				cfgSet("extendRange", st.extendRange)
+				setExtendRange(st.extendRange)
+			end,
+		})
+	end
+end)
+-- ======================================-- ================= 甩飞 Rake（击中时施加巨大速度） =================
+local flingRake = {
+	enabled = false,
+	force = 150,              -- 甩飞力度
+	upward = true,            -- 是否向上甩
+}
+
+local function flingRakeEntity()
+	local rk = ffc(Ws, "Rake")
+	if not rk then return end
+	local root = ffc(rk, "HumanoidRootPart") or ffcr(rk, "HumanoidRootPart")
+	if not root then return end
+	-- 给 Rake 施加瞬间速度
+	local vel = Vector3.new(0, 0, 0)
+	local hrp = GET_HRP()
+	if hrp then
+		local dir = (root.Position - hrp.Position).Unit
+		vel = dir * flingRake.force
+	end
+	if flingRake.upward then
+		vel = vel + Vector3.new(0, flingRake.force, 0)
+	end
+	root.AssemblyLinearVelocity = vel
+	root.AssemblyAngularVelocity = Vector3.new(math.random(-50, 50), math.random(-50, 50), math.random(-50, 50))
+end
+
+-- 监听电击棍击中事件（原脚本已有 killaura 或手动攻击）
+local originalStickHit = nil
+local function hookStickHit()
+	-- 方法：找到 StunStick 的 Event 远程事件，拦截 FireServer 参数
+	-- 简单版：每帧检测是否正在攻击（通过心跳），但那样不准确。
+	-- 更可靠：如果开启了镰鼬自动攻击（RakeKillAura），在攻击函数中加入甩飞逻辑。
+	-- 这里为了简化，提供一个单独的按钮：点击按钮立即甩飞最近的 Rake。
+end
+
+function setFlingRakeEnabled(enabled)
+	flingRake.enabled = enabled == true
+end
+
+-- 提供一个手动甩飞按钮（方便测试）
+local function manualFling()
+	if not flingRake.enabled then return end
+	flingRakeEntity()
+end
+
+-- 如果您已经开启了“Rake Killaura”，可以在原攻击循环中加入甩飞。
+-- 在原脚本的 auraSwing 函数附近添加判断。
+-- 但为了不修改核心代码，这里提供独立按钮。
+
+-- UI 添加
+task.spawn(function()
+	for i = 1, 10 do
+		if type(ExploitsTab) == "table" and type(ExploitsTab.CreateButton) == "function" then
+			break
+		end
+		task.wait(0.5)
+	end
+	if type(ExploitsTab) ~= "table" then
+		print("[FlingRake] UI添加失败")
+		return
+	end
+	ExploitsTab:CreateToggle({
+		Name = "甩飞 Rake (击中时)",
+		CurrentValue = st.flingRake == true,
+		Flag = "FlingRake",
+		Callback = function(state)
+			st.flingRake = state == true
+			cfgSet("flingRake", st.flingRake)
+			setFlingRakeEnabled(st.flingRake)
+		end,
+	})
+	ExploitsTab:CreateButton({
+		Name = "立即甩飞 Rake (测试)",
+		Callback = function()
+			if not flingRake.enabled then
+				if type(Obsidian) == "table" then Obsidian:Notify({Title="提示", Content="请先开启甩飞开关", Duration=2}) end
+				return
+			end
+			manualFling()
+			if type(Obsidian) == "table" then Obsidian:Notify({Title="甩飞", Content="已尝试甩飞 Rake", Duration=1}) end
+		end,
+	})
+end)
+
+-- 配置变量
+if st.flingRake == nil then st.flingRake = false end
+setFlingRakeEnabled(st.flingRake)
+-- ======================================================
+-- ================= 甩飞 Rake（击中时施加巨大速度） =================
+local flingRake = {
+	enabled = false,
+	force = 150,              -- 甩飞力度
+	upward = true,            -- 是否向上甩
+}
+
+local function flingRakeEntity()
+	local rk = ffc(Ws, "Rake")
+	if not rk then return end
+	local root = ffc(rk, "HumanoidRootPart") or ffcr(rk, "HumanoidRootPart")
+	if not root then return end
+	-- 给 Rake 施加瞬间速度
+	local vel = Vector3.new(0, 0, 0)
+	local hrp = GET_HRP()
+	if hrp then
+		local dir = (root.Position - hrp.Position).Unit
+		vel = dir * flingRake.force
+	end
+	if flingRake.upward then
+		vel = vel + Vector3.new(0, flingRake.force, 0)
+	end
+	root.AssemblyLinearVelocity = vel
+	root.AssemblyAngularVelocity = Vector3.new(math.random(-50, 50), math.random(-50, 50), math.random(-50, 50))
+end
+
+-- 监听电击棍击中事件（原脚本已有 killaura 或手动攻击）
+local originalStickHit = nil
+local function hookStickHit()
+	-- 方法：找到 StunStick 的 Event 远程事件，拦截 FireServer 参数
+	-- 简单版：每帧检测是否正在攻击（通过心跳），但那样不准确。
+	-- 更可靠：如果开启了镰鼬自动攻击（RakeKillAura），在攻击函数中加入甩飞逻辑。
+	-- 这里为了简化，提供一个单独的按钮：点击按钮立即甩飞最近的 Rake。
+end
+
+function setFlingRakeEnabled(enabled)
+	flingRake.enabled = enabled == true
+end
+
+-- 提供一个手动甩飞按钮（方便测试）
+local function manualFling()
+	if not flingRake.enabled then return end
+	flingRakeEntity()
+end
+
+-- 如果您已经开启了“Rake Killaura”，可以在原攻击循环中加入甩飞。
+-- 在原脚本的 auraSwing 函数附近添加判断。
+-- 但为了不修改核心代码，这里提供独立按钮。
+
+-- UI 添加
+task.spawn(function()
+	for i = 1, 10 do
+		if type(ExploitsTab) == "table" and type(ExploitsTab.CreateButton) == "function" then
+			break
+		end
+		task.wait(0.5)
+	end
+	if type(ExploitsTab) ~= "table" then
+		print("[FlingRake] UI添加失败")
+		return
+	end
+	ExploitsTab:CreateToggle({
+		Name = "甩飞 Rake (击中时)",
+		CurrentValue = st.flingRake == true,
+		Flag = "FlingRake",
+		Callback = function(state)
+			st.flingRake = state == true
+			cfgSet("flingRake", st.flingRake)
+			setFlingRakeEnabled(st.flingRake)
+		end,
+	})
+	ExploitsTab:CreateButton({
+		Name = "立即甩飞 Rake (测试)",
+		Callback = function()
+			if not flingRake.enabled then
+				if type(Obsidian) == "table" then Obsidian:Notify({Title="提示", Content="请先开启甩飞开关", Duration=2}) end
+				return
+			end
+			manualFling()
+			if type(Obsidian) == "table" then Obsidian:Notify({Title="甩飞", Content="已尝试甩飞 Rake", Duration=1}) end
+		end,
+	})
+end)
+
+-- 配置变量
+if st.flingRake == nil then st.flingRake = false end
+setFlingRakeEnabled(st.flingRake)
 -- ==============================================
