@@ -351,6 +351,9 @@ if game.GameId == 847722000 then
 	st.adonisBypass = cfgBool("adonisBypass", true)
 	-- 新增：自动拾取信号枪开关
 	st.autoPickupFlare = cfgBool("autoPickupFlare", false)
+	-- 新增：自动医疗包
+	st.autoMed = cfgBool("autoMed", false)
+	st.medThreshold = cfgNum("medThreshold", 40, 30, 70)
 	_G.FieldOfView = st.fov
 	_G.enableFOV = st.fovOn
 	_G.RakeFovUiFix = st.fovUiFix
@@ -2918,609 +2921,452 @@ if game.GameId == 847722000 then
 
 	clientBypass.buildUi = function()
 	local RunService = ClonedService("RunService")
-	local InputService = ClonedService("UserInputService")
-	local FreeCamPart
+local InputService = ClonedService("UserInputService")
+local FreeCamPart
 
 
 
 
 
-	pcall(function() genv.RakeGui = true end)
+pcall(function() genv.RakeGui = true end)
 
 
-	local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
-	local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
-	local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
-	Library.ShowCustomCursor = st.uiCursor == true
-	Library.ShowToggleFrameInKeybinds = st.uiToggleFrames == true
-	Library.CantDragForced = st.uiDragLock == true
-	local Options = Library.Options
-	local Toggles = Library.Toggles
-	local canCfg = fileApi
-	local Obsidian = {}
-	local uiNum = 0
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+Library.ShowCustomCursor = st.uiCursor == true
+Library.ShowToggleFrameInKeybinds = st.uiToggleFrames == true
+Library.CantDragForced = st.uiDragLock == true
+local Options = Library.Options
+local Toggles = Library.Toggles
+local canCfg = fileApi
+local Obsidian = {}
+local uiNum = 0
 
-	local function uiKey(flag, name)
-		uiNum += 1
-		local key = tostring(flag or name or ("Item" .. uiNum)):gsub("%s+", "_"):gsub("[^%w_]", "")
-		if key == "" then
-			key = "Item" .. uiNum
-		end
-		return "Rake_" .. key .. "_" .. tostring(uiNum)
+local function uiKey(flag, name)
+	uiNum += 1
+	local key = tostring(flag or name or ("Item" .. uiNum)):gsub("%s+", "_"):gsub("[^%w_]", "")
+	if key == "" then
+		key = "Item" .. uiNum
 	end
+	return "Rake_" .. key .. "_" .. tostring(uiNum)
+end
 
-	local function uiPrec(v)
-		local n = tonumber(v) or 0
-		if n <= 0 then
-			return 0
-		end
-		local s = tostring(n)
-		local p = s:find(".", 1, true)
-		if not p then
-			return 0
-		end
-		return math.clamp(#s - p, 0, 4)
+local function uiPrec(v)
+	local n = tonumber(v) or 0
+	if n <= 0 then
+		return 0
 	end
-
-
-	local function uiWrap(obj)
-		return setmetatable({ _obj = obj }, {
-			__index = function(t, k)
-				if k == "Set" then
-					return function(_, v)
-						local o = rawget(t, "_obj")
-						pcall(function()
-							if o and o.SetValue then
-								o:SetValue(v)
-							elseif o and o.Set then
-								o:Set(v)
-							elseif o and o.SetText then
-								o:SetText(tostring(v))
-							end
-						end)
-					end
-				end
-				if k == "SetText" then
-					return function(_, v)
-						local o = rawget(t, "_obj")
-						pcall(function()
-							if o and o.SetText then
-								o:SetText(tostring(v))
-							elseif o and o.Set then
-								o:Set(tostring(v))
-							end
-						end)
-					end
-				end
-				local o = rawget(t, "_obj")
-				local v = o and o[k]
-				if type(v) == "function" then
-					return function(_, ...)
-						return v(o, ...)
-					end
-				end
-				return v
-			end
-		})
+	local s = tostring(n)
+	local p = s:find(".", 1, true)
+	if not p then
+		return 0
 	end
+	return math.clamp(#s - p, 0, 4)
+end
 
-	local function makeUiTab(tab, group)
-		local t = { __tab = tab, __group = group }
 
-		function t:CreateLabel(text)
-			local id = uiKey(nil, text)
-			local ok, obj = pcall(function()
-				return group:AddLabel(tostring(text or ""), true, id)
-			end)
-			return uiWrap((ok and obj) or Options[id])
-		end
-
-		function t:CreateDivider()
-			pcall(function()
-				group:AddDivider()
-			end)
-			return uiWrap(nil)
-		end
-
-		function t:CreateButton(info)
-			info = type(info) == "table" and info or { Name = tostring(info or "Button") }
-			local text = tostring(info.Name or info.Text or "Button")
-			local cb = info.Callback or info.Func
-			local ok, obj = pcall(function()
-				return group:AddButton({
-					Text = text,
-					Func = function()
-						if cb then
-							cb()
-						end
-					end,
-					DoubleClick = false,
-				})
-			end)
-			if not ok then
-				pcall(function()
-					obj = group:AddButton(text, function()
-						if cb then
-							cb()
+local function uiWrap(obj)
+	return setmetatable({ _obj = obj }, {
+		__index = function(t, k)
+			if k == "Set" then
+				return function(_, v)
+					local o = rawget(t, "_obj")
+					pcall(function()
+						if o and o.SetValue then
+							o:SetValue(v)
+						elseif o and o.Set then
+							o:Set(v)
+						elseif o and o.SetText then
+							o:SetText(tostring(v))
 						end
 					end)
-				end)
+				end
 			end
-			return uiWrap(obj)
-		end
-
-		function t:CreateToggle(info)
-			info = type(info) == "table" and info or {}
-			local id = uiKey(info.Flag, info.Name)
-			local cb = info.Callback
-			pcall(function()
-				group:AddToggle(id, {
-					Text = tostring(info.Name or info.Text or "Toggle"),
-					Default = info.CurrentValue == true or info.Default == true,
-					Callback = function(v)
-						if cb then
-							cb(v)
+			if k == "SetText" then
+				return function(_, v)
+					local o = rawget(t, "_obj")
+					pcall(function()
+						if o and o.SetText then
+							o:SetText(tostring(v))
+						elseif o and o.Set then
+							o:Set(tostring(v))
 						end
-					end,
-				})
-			end)
-			return uiWrap(Toggles[id] or Options[id])
+					end)
+				end
+			end
+			local o = rawget(t, "_obj")
+			local v = o and o[k]
+			if type(v) == "function" then
+				return function(_, ...)
+					return v(o, ...)
+				end
+			end
+			return v
 		end
+	})
+end
 
-		function t:CreateSlider(info)
-			info = type(info) == "table" and info or {}
-			local range = type(info.Range) == "table" and info.Range or { 0, 100 }
-			local min = tonumber(range[1]) or 0
-			local max = tonumber(range[2]) or 100
-			local id = uiKey(info.Flag, info.Name)
-			local cb = info.Callback
-			pcall(function()
-				group:AddSlider(id, {
-					Text = tostring(info.Name or info.Text or "Slider"),
-					Default = tonumber(info.CurrentValue or info.Default) or min,
-					Min = min,
-					Max = max,
-					Rounding = uiPrec(info.Increment),
-					Callback = function(v)
-						if cb then
-							cb(v)
-						end
-					end,
-				})
-			end)
-			return uiWrap(Options[id])
-		end
+local function makeUiTab(tab, group)
+	local t = { __tab = tab, __group = group }
 
-		function t:CreateDropdown(info)
-			info = type(info) == "table" and info or {}
-			local vals = type(info.Values) == "table" and info.Values or {}
-			local id = uiKey(info.Flag, info.Name)
-			local cb = info.Callback
-			local def = info.CurrentOption or info.CurrentValue or info.Default or vals[1]
-			pcall(function()
-				group:AddDropdown(id, {
-					Values = vals,
-					Default = def,
-					Multi = info.Multi == true,
-					Text = tostring(info.Name or info.Text or "Dropdown"),
-					Searchable = info.Searchable == true,
-					Callback = function(v)
-						if cb then
-							cb(v)
-						end
-					end,
-				})
-			end)
-			return uiWrap(Options[id])
-		end
-
-		function t:CreateKeybind(info)
-			info = type(info) == "table" and info or {}
-			local id = uiKey(info.Flag, info.Name)
-			local cb = info.Callback
-			local label
-			pcall(function()
-				label = group:AddLabel(tostring(info.Name or "Keybind"))
-			end)
-			local obj
-			pcall(function()
-				obj = label:AddKeyPicker(id, {
-					Default = tostring(info.CurrentKeybind or info.Default or "None"),
-					Mode = tostring(info.Mode or (info.HoldToInteract and "Hold" or "Press")),
-					Text = tostring(info.Name or "Keybind"),
-					NoUI = info.NoUI == true,
-					Callback = function(v)
-						if cb then
-							cb(v)
-						end
-					end,
-				})
-			end)
-			local wrapped = uiWrap(Options[id] or obj)
-			wrapped.__id = id
-			return wrapped
-		end
-
-		return t
+	function t:CreateLabel(text)
+		local id = uiKey(nil, text)
+		local ok, obj = pcall(function()
+			return group:AddLabel(tostring(text or ""), true, id)
+		end)
+		return uiWrap((ok and obj) or Options[id])
 	end
 
-	function Obsidian:Notify(info)
-		info = type(info) == "table" and info or {}
+	function t:CreateDivider()
 		pcall(function()
-			Library:Notify({
-				Title = tostring(info.Title or "Notification"),
-				Description = tostring(info.Content or info.Description or info.Text or ""),
-				Time = tonumber(info.Duration or info.Time) or 3,
+			group:AddDivider()
+		end)
+		return uiWrap(nil)
+	end
+
+	function t:CreateButton(info)
+		info = type(info) == "table" and info or { Name = tostring(info or "Button") }
+		local text = tostring(info.Name or info.Text or "Button")
+		local cb = info.Callback or info.Func
+		local ok, obj = pcall(function()
+			return group:AddButton({
+				Text = text,
+				Func = function()
+					if cb then
+						cb()
+					end
+				end,
+				DoubleClick = false,
 			})
 		end)
-	end
-
-	function Obsidian:Destroy()
-		pcall(function()
-			Library:Unload()
-		end)
-	end
-
-	function Obsidian:LoadConfiguration()
-		return nil
-	end
-
-	function Obsidian:CreateWindow(info)
-		info = type(info) == "table" and info or {}
-		local raw = Library:CreateWindow({
-			Title = tostring(info.Name or info.Title or "Project [The Rake]"),
-			Footer = tostring(info.LoadingSubtitle or "Sleepy Hub"),
-			NotifySide = "Right",
-			ShowCustomCursor = st.uiCursor == true,
-			AutoShow = true,
-			Center = true,
-			Resizable = st.uiResizable == true,
-			ToggleKeybind = uiKeyCode(st.uiBind, Enum.KeyCode.RightControl),
-			ShowMobileButtons = st.uiMobileButtons == true,
-			MobileButtonsSide = st.uiMobileRight == true and "Right" or "Left",
-			UnlockMouseWhileOpen = st.uiUnlockMouse == true,
-			DisableSearch = st.uiSearchBar ~= true,
-			GlobalSearch = st.uiGlobalSearch == true,
-			EnableSidebarResize = st.uiSidebarResize == true,
-			EnableCompacting = st.uiCompacting == true,
-			DisableCompactingSnap = st.uiNoSnap == true,
-			SidebarCompacted = st.uiCompact == true,
-			CornerRadius = st.uiCorner or 4,
-		})
-		Obsidian.RawWindow = raw
-		local icons = {
-			Main = "user",
-			Settings = "settings",
-			Radio = "radio",
-		}
-		local w = { __window = raw }
-		function w:CreateTab(name, icon, noGroup)
-			local iconName = icons[tostring(name)] or (type(icon) == "string" and icon) or "circle"
-			local rawTab = raw:AddTab(tostring(name or "Tab"), iconName)
-			if noGroup == true then
-				return { __tab = rawTab }
-			end
-			local group = rawTab:AddLeftGroupbox(tostring(name or "Tab"), iconName)
-			return makeUiTab(rawTab, group)
-		end
-		return w
-	end
-
-	local Window = Obsidian:CreateWindow({
-		Name = "Project [The Rake]",
-		LoadingSubtitle = "Sleepy Hub",
-	})
-
-	pcall(function()
-		Library:SetDPIScale(st.uiDpi or 100)
-	end)
-
-	--Tabs
-	local MainTab = Window:CreateTab("Main", 11252440515, true)
-	local RadioTab = Window:CreateTab("Radio", "radio", true)
-	local SettingsTab = Window:CreateTab("Settings", 11252440305)
-	local PlayerTab = MainTab
-	local ClientTab = MainTab
-	local ExploitsTab = MainTab
-
-	if MainTab and MainTab.__tab then
-		local rawMain = MainTab.__tab
-		local okPlayer, playerGroup = pcall(function()
-			return rawMain:AddLeftGroupbox("Player", "user")
-		end)
-		local okClient, clientGroup = pcall(function()
-			return rawMain:AddRightGroupbox("Client", "monitor")
-		end)
-		local okExploits, exploitsGroup = pcall(function()
-			return rawMain:AddLeftGroupbox("Exploits", "skull")
-		end)
-
-		if okPlayer and playerGroup then
-			PlayerTab = makeUiTab(rawMain, playerGroup)
-		end
-		if okClient and clientGroup then
-			ClientTab = makeUiTab(rawMain, clientGroup)
-		end
-		if okExploits and exploitsGroup then
-			ExploitsTab = makeUiTab(rawMain, exploitsGroup)
-		end
-	end
-
-	local ObsidianSettingsTab
-
-	pcall(function()
-		ThemeManager:SetLibrary(Library)
-		ThemeManager:SetFolder("ProjectTheRake")
-		if SettingsTab and SettingsTab.__tab then
-			ThemeManager:ApplyToTab(SettingsTab.__tab)
-			ObsidianSettingsTab = makeUiTab(SettingsTab.__tab, SettingsTab.__tab:AddRightGroupbox("Obsidian UI", "settings"))
-		end
-	end)
-
-	ObsidianSettingsTab = ObsidianSettingsTab or SettingsTab
-
-	local function blankObj()
-		return setmetatable({}, {
-			__index = function()
-				return function() end
-			end
-		})
-	end
-
-	local function safeTab(tab, name)
-		return setmetatable({}, {
-			__index = function(_, k)
-				local v = tab and tab[k]
-				if type(v) == "function" then
-					return function(_, ...)
-						local ok, res = pcall(v, tab, ...)
-						if ok then
-							return res or blankObj()
-						end
-						pcall(warn, "[RakeGui] " .. tostring(name) .. "." .. tostring(k) .. " failed:", res)
-						return blankObj()
+		if not ok then
+			pcall(function()
+				obj = group:AddButton(text, function()
+					if cb then
+						cb()
 					end
-				end
-				return v
-			end
+				end)
+			end)
+		end
+		return uiWrap(obj)
+	end
+
+	function t:CreateToggle(info)
+		info = type(info) == "table" and info or {}
+		local id = uiKey(info.Flag, info.Name)
+		local cb = info.Callback
+		pcall(function()
+			group:AddToggle(id, {
+				Text = tostring(info.Name or info.Text or "Toggle"),
+				Default = info.CurrentValue == true or info.Default == true,
+				Callback = function(v)
+					if cb then
+						cb(v)
+					end
+				end,
+			})
+		end)
+		return uiWrap(Toggles[id] or Options[id])
+	end
+
+	function t:CreateSlider(info)
+		info = type(info) == "table" and info or {}
+		local range = type(info.Range) == "table" and info.Range or { 0, 100 }
+		local min = tonumber(range[1]) or 0
+		local max = tonumber(range[2]) or 100
+		local id = uiKey(info.Flag, info.Name)
+		local cb = info.Callback
+		pcall(function()
+			group:AddSlider(id, {
+				Text = tostring(info.Name or info.Text or "Slider"),
+				Default = tonumber(info.CurrentValue or info.Default) or min,
+				Min = min,
+				Max = max,
+				Rounding = uiPrec(info.Increment),
+				Callback = function(v)
+					if cb then
+						cb(v)
+					end
+				end,
+			})
+		end)
+		return uiWrap(Options[id])
+	end
+
+	function t:CreateDropdown(info)
+		info = type(info) == "table" and info or {}
+		local vals = type(info.Values) == "table" and info.Values or {}
+		local id = uiKey(info.Flag, info.Name)
+		local cb = info.Callback
+		local def = info.CurrentOption or info.CurrentValue or info.Default or vals[1]
+		pcall(function()
+			group:AddDropdown(id, {
+				Values = vals,
+				Default = def,
+				Multi = info.Multi == true,
+				Text = tostring(info.Name or info.Text or "Dropdown"),
+				Searchable = info.Searchable == true,
+				Callback = function(v)
+					if cb then
+						cb(v)
+					end
+				end,
+			})
+		end)
+		return uiWrap(Options[id])
+	end
+
+	function t:CreateKeybind(info)
+		info = type(info) == "table" and info or {}
+		local id = uiKey(info.Flag, info.Name)
+		local cb = info.Callback
+		local label
+		pcall(function()
+			label = group:AddLabel(tostring(info.Name or "Keybind"))
+		end)
+		local obj
+		pcall(function()
+			obj = label:AddKeyPicker(id, {
+				Default = tostring(info.CurrentKeybind or info.Default or "None"),
+				Mode = tostring(info.Mode or (info.HoldToInteract and "Hold" or "Press")),
+				Text = tostring(info.Name or "Keybind"),
+				NoUI = info.NoUI == true,
+				Callback = function(v)
+					if cb then
+						cb(v)
+					end
+				end,
+			})
+		end)
+		local wrapped = uiWrap(Options[id] or obj)
+		wrapped.__id = id
+		return wrapped
+	end
+
+	return t
+end
+
+function Obsidian:Notify(info)
+	info = type(info) == "table" and info or {}
+	pcall(function()
+		Library:Notify({
+			Title = tostring(info.Title or "Notification"),
+			Description = tostring(info.Content or info.Description or info.Text or ""),
+			Time = tonumber(info.Duration or info.Time) or 3,
 		})
-	end
+	end)
+end
 
-	MainTab = safeTab(MainTab, "Main")
-	PlayerTab = safeTab(PlayerTab, "Player")
-	ClientTab = safeTab(ClientTab, "Client")
-	ExploitsTab = safeTab(ExploitsTab, "Exploits")
-	SettingsTab = safeTab(SettingsTab, "Settings")
-	ObsidianSettingsTab = safeTab(ObsidianSettingsTab, "ObsidianSettings")
+function Obsidian:Destroy()
+	pcall(function()
+		Library:Unload()
+	end)
+end
 
-	local radioRows = {}
-	local radioList
-	local radioLayout
-	local radioEmpty
-	local radioEmptyText = "Waiting for radio messages..."
-	local radioMaxRows = 200
-	local radioSounds = {
-		"rbxassetid://103856279160788",
-		"rbxassetid://88017109520003",
-		"rbxassetid://131718170793766",
-		"rbxassetid://103338553714052",
+function Obsidian:LoadConfiguration()
+	return nil
+end
+
+function Obsidian:CreateWindow(info)
+	info = type(info) == "table" and info or {}
+	local raw = Library:CreateWindow({
+		Title = tostring(info.Name or info.Title or "Project [The Rake]"),
+		Footer = tostring(info.LoadingSubtitle or "Sleepy Hub"),
+		NotifySide = "Right",
+		ShowCustomCursor = st.uiCursor == true,
+		AutoShow = true,
+		Center = true,
+		Resizable = st.uiResizable == true,
+		ToggleKeybind = uiKeyCode(st.uiBind, Enum.KeyCode.RightControl),
+		ShowMobileButtons = st.uiMobileButtons == true,
+		MobileButtonsSide = st.uiMobileRight == true and "Right" or "Left",
+		UnlockMouseWhileOpen = st.uiUnlockMouse == true,
+		DisableSearch = st.uiSearchBar ~= true,
+		GlobalSearch = st.uiGlobalSearch == true,
+		EnableSidebarResize = st.uiSidebarResize == true,
+		EnableCompacting = st.uiCompacting == true,
+		DisableCompactingSnap = st.uiNoSnap == true,
+		SidebarCompacted = st.uiCompact == true,
+		CornerRadius = st.uiCorner or 4,
+	})
+	Obsidian.RawWindow = raw
+	local icons = {
+		Main = "user",
+		Settings = "settings",
+		Radio = "radio",
 	}
-
-	local function richEscape(v)
-		local s = tostring(v or "")
-		s = s:gsub("&", "&amp;")
-		s = s:gsub("<", "&lt;")
-		s = s:gsub(">", "&gt;")
-		return s
+	local w = { __window = raw }
+	function w:CreateTab(name, icon, noGroup)
+		local iconName = icons[tostring(name)] or (type(icon) == "string" and icon) or "circle"
+		local rawTab = raw:AddTab(tostring(name or "Tab"), iconName)
+		if noGroup == true then
+			return { __tab = rawTab }
+		end
+		local group = rawTab:AddLeftGroupbox(tostring(name or "Tab"), iconName)
+		return makeUiTab(rawTab, group)
 	end
+	return w
+end
 
-	local function radioName(sender)
-		if typeof(sender) == "Instance" and sender:IsA("Player") then
-			local username = tostring(sender.Name or "Unknown")
-			local display = tostring(sender.DisplayName or username)
-			if display == username then
-				return "@" .. username
+local Window = Obsidian:CreateWindow({
+	Name = "Project [The Rake]",
+	LoadingSubtitle = "Sleepy Hub",
+})
+
+pcall(function()
+	Library:SetDPIScale(st.uiDpi or 100)
+end)
+
+--Tabs
+local MainTab = Window:CreateTab("Main", 11252440515, true)
+local RadioTab = Window:CreateTab("Radio", "radio", true)
+local SettingsTab = Window:CreateTab("Settings", 11252440305)
+local PlayerTab = MainTab
+local ClientTab = MainTab
+local ExploitsTab = MainTab
+
+if MainTab and MainTab.__tab then
+	local rawMain = MainTab.__tab
+	local okPlayer, playerGroup = pcall(function()
+		return rawMain:AddLeftGroupbox("Player", "user")
+	end)
+	local okClient, clientGroup = pcall(function()
+		return rawMain:AddRightGroupbox("Client", "monitor")
+	end)
+	local okExploits, exploitsGroup = pcall(function()
+		return rawMain:AddLeftGroupbox("Exploits", "skull")
+	end)
+
+	if okPlayer and playerGroup then
+		PlayerTab = makeUiTab(rawMain, playerGroup)
+	end
+	if okClient and clientGroup then
+		ClientTab = makeUiTab(rawMain, clientGroup)
+	end
+	if okExploits and exploitsGroup then
+		ExploitsTab = makeUiTab(rawMain, exploitsGroup)
+	end
+end
+
+local ObsidianSettingsTab
+
+pcall(function()
+	ThemeManager:SetLibrary(Library)
+	ThemeManager:SetFolder("ProjectTheRake")
+	if SettingsTab and SettingsTab.__tab then
+		ThemeManager:ApplyToTab(SettingsTab.__tab)
+		ObsidianSettingsTab = makeUiTab(SettingsTab.__tab, SettingsTab.__tab:AddRightGroupbox("Obsidian UI", "settings"))
+	end
+end)
+
+ObsidianSettingsTab = ObsidianSettingsTab or SettingsTab
+
+local function blankObj()
+	return setmetatable({}, {
+		__index = function()
+			return function() end
+		end
+	})
+end
+
+local function safeTab(tab, name)
+	return setmetatable({}, {
+		__index = function(_, k)
+			local v = tab and tab[k]
+			if type(v) == "function" then
+				return function(_, ...)
+					local ok, res = pcall(v, tab, ...)
+					if ok then
+						return res or blankObj()
+					end
+					pcall(warn, "[RakeGui] " .. tostring(name) .. "." .. tostring(k) .. " failed:", res)
+					return blankObj()
+				end
 			end
-			return display .. " (@" .. username .. ")"
+			return v
 		end
-		return tostring(sender or "Unknown")
-	end
+	})
+end
 
-	local function radioStoredName(name)
-		local username = tostring(name or "")
-		username = username:gsub("%s*:+%s*$", "")
-		if username == "" then
-			return ""
-		end
-		local player = ffc(Plrs, username)
-		if player and player:IsA("Player") then
-			return radioName(player)
-		end
-		return username
-	end
+MainTab = safeTab(MainTab, "Main")
+PlayerTab = safeTab(PlayerTab, "Player")
+ClientTab = safeTab(ClientTab, "Client")
+ExploitsTab = safeTab(ExploitsTab, "Exploits")
+SettingsTab = safeTab(SettingsTab, "Settings")
+ObsidianSettingsTab = safeTab(ObsidianSettingsTab, "ObsidianSettings")
 
-	local function updateRadioCanvas()
+local radioRows = {}
+local radioList
+local radioLayout
+local radioEmpty
+local radioEmptyText = "Waiting for radio messages..."
+local radioMaxRows = 200
+local radioSounds = {
+	"rbxassetid://103856279160788",
+	"rbxassetid://88017109520003",
+	"rbxassetid://131718170793766",
+	"rbxassetid://103338553714052",
+}
+
+local function richEscape(v)
+	local s = tostring(v or "")
+	s = s:gsub("&", "&amp;")
+	s = s:gsub("<", "&lt;")
+	s = s:gsub(">", "&gt;")
+	return s
+end
+
+local function radioName(sender)
+	if typeof(sender) == "Instance" and sender:IsA("Player") then
+		local username = tostring(sender.Name or "Unknown")
+		local display = tostring(sender.DisplayName or username)
+		if display == username then
+			return "@" .. username
+		end
+		return display .. " (@" .. username .. ")"
+	end
+	return tostring(sender or "Unknown")
+end
+
+local function radioStoredName(name)
+	local username = tostring(name or "")
+	username = username:gsub("%s*:+%s*$", "")
+	if username == "" then
+		return ""
+	end
+	local player = ffc(Plrs, username)
+	if player and player:IsA("Player") then
+		return radioName(player)
+	end
+	return username
+end
+
+local function updateRadioCanvas()
+	if not radioList or not radioLayout then
+		return
+	end
+	local function apply()
 		if not radioList or not radioLayout then
 			return
 		end
-		local function apply()
-			if not radioList or not radioLayout then
-				return
-			end
-			local h = radioLayout.AbsoluteContentSize.Y + 8
-			radioList.CanvasSize = UDim2.new(0, 0, 0, h)
-			radioList.CanvasPosition = Vector2.new(0, math.max(0, h - radioList.AbsoluteWindowSize.Y))
-		end
-		if type(task) == "table" and type(task.defer) == "function" then
-			task.defer(apply)
-		else
-			apply()
-		end
+		local h = radioLayout.AbsoluteContentSize.Y + 8
+		radioList.CanvasSize = UDim2.new(0, 0, 0, h)
+		radioList.CanvasPosition = Vector2.new(0, math.max(0, h - radioList.AbsoluteWindowSize.Y))
 	end
-
-	local function clearRadioMessages()
-		for i = #radioRows, 1, -1 do
-			safeDestroy(radioRows[i])
-			radioRows[i] = nil
-		end
-		if radioList and not radioEmpty then
-			radioEmpty = Instance.new("TextLabel")
-			radioEmpty.Name = "Empty"
-			radioEmpty.BackgroundTransparency = 1
-			radioEmpty.Font = Enum.Font.SourceSans
-			radioEmpty.Text = radioEmptyText
-			radioEmpty.TextColor3 = Color3.fromRGB(180, 180, 180)
-			radioEmpty.TextSize = 18
-			radioEmpty.Size = UDim2.new(1, -8, 0, 32)
-			radioEmpty.Position = UDim2.new(0, 4, 0, 8)
-			radioEmpty.Parent = radioList
-		end
-		updateRadioCanvas()
+	if type(task) == "table" and type(task.defer) == "function" then
+		task.defer(apply)
+	else
+		apply()
 	end
+end
 
-	local function pushRadioLine(name, message)
-		if not radioList then
-			return
-		end
-		if radioEmpty then
-			safeDestroy(radioEmpty)
-			radioEmpty = nil
-		end
-		name = tostring(name or "")
-		message = tostring(message or "")
-		if name == "" and message == "" then
-			return
-		end
-
-		local row = Instance.new("Frame")
-		row.Name = "RadioMessage"
-		row.BackgroundColor3 = Color3.fromRGB(5, 5, 5)
-		row.BackgroundTransparency = 0.12
-		row.BorderColor3 = Color3.fromRGB(28, 28, 28)
-		row.Size = UDim2.new(1, -8, 0, 36)
-		row.Parent = radioList
-
-		local text = Instance.new("TextLabel")
-		text.Name = "Text"
-		text.BackgroundTransparency = 1
-		text.Font = Enum.Font.SourceSans
-		text.RichText = true
-		text.TextColor3 = Color3.fromRGB(245, 245, 245)
-		text.TextSize = 24
-		text.TextXAlignment = Enum.TextXAlignment.Left
-		text.TextYAlignment = Enum.TextYAlignment.Center
-		text.TextTruncate = Enum.TextTruncate.AtEnd
-		text.Size = UDim2.new(1, -10, 1, 0)
-		text.Position = UDim2.new(0, 6, 0, 0)
-		text.Text = "<b>" .. richEscape(name) .. ":</b> " .. richEscape(message)
-		text.Parent = row
-
-		radioRows[#radioRows + 1] = row
-		while #radioRows > radioMaxRows do
-			local old = table.remove(radioRows, 1)
-			safeDestroy(old)
-		end
-		updateRadioCanvas()
+local function clearRadioMessages()
+	for i = #radioRows, 1, -1 do
+		safeDestroy(radioRows[i])
+		radioRows[i] = nil
 	end
-
-	local function pushRadioMessage(sender, message)
-		pushRadioLine(radioName(sender), message)
-	end
-
-	local function notifyRadioMessage(sender, message)
-		if st.radioNotifications ~= true then
-			return
-		end
-		Obsidian:Notify({
-			Title = "Radio",
-			Content = radioName(sender) .. ": " .. tostring(message or ""),
-			Duration = 4,
-		})
-	end
-
-	local function playRadioSound()
-		if st.radioSounds ~= true or #radioSounds <= 0 then
-			return
-		end
-		local sound = Instance.new("Sound")
-		sound.Name = "RakeRadioMessageSound"
-		sound.SoundId = radioSounds[math.random(1, #radioSounds)]
-		sound.Volume = 1
-		sound.Parent = Ws
-		sound.Ended:Connect(function()
-			safeDestroy(sound)
-		end)
-		pcall(function()
-			sound:Play()
-		end)
-		if type(task) == "table" and type(task.delay) == "function" then
-			task.delay(8, function()
-				safeDestroy(sound)
-			end)
-		end
-	end
-
-	local function getRadioValue(line, valueName)
-		local value = line and ffc(line, valueName)
-		return tostring(valOf(value, "") or "")
-	end
-
-	local function hydrateRadioChannel()
-		local channel = ffc(Rep, "RadioChannel")
-		if not channel then
-			return
-		end
-		clearRadioMessages()
-		for i = 1, 7 do
-			local line = ffc(channel, "Line" .. tostring(i))
-			local name = getRadioValue(line, "Name")
-			local msg = getRadioValue(line, "Msg")
-			if name ~= "" or msg ~= "" then
-				pushRadioLine(radioStoredName(name), msg)
-			end
-		end
-	end
-
-	local function makeRadioPanel()
-		local root = Instance.new("Frame")
-		root.Name = "RadioPanel"
-		root.BackgroundColor3 = Color3.fromRGB(8, 8, 8)
-		root.BackgroundTransparency = 0.05
-		root.BorderColor3 = Color3.fromRGB(24, 24, 24)
-		root.Size = UDim2.new(1, 0, 0, 390)
-
-		local header = Instance.new("TextLabel")
-		header.Name = "Header"
-		header.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-		header.BackgroundTransparency = 0.15
-		header.BorderColor3 = Color3.fromRGB(16, 16, 16)
-		header.Font = Enum.Font.SourceSansBold
-		header.Text = "RADIO"
-		header.TextColor3 = Color3.fromRGB(255, 255, 255)
-		header.TextSize = 30
-		header.Size = UDim2.new(1, -8, 0, 40)
-		header.Position = UDim2.new(0, 4, 0, 4)
-		header.Parent = root
-
-		radioList = Instance.new("ScrollingFrame")
-		radioList.Name = "Messages"
-		radioList.Active = true
-		radioList.BackgroundTransparency = 1
-		radioList.BorderSizePixel = 0
-		radioList.BottomImage = ""
-		radioList.CanvasSize = UDim2.new(0, 0, 0, 0)
-		radioList.MidImage = ""
-		radioList.ScrollBarThickness = 5
-		radioList.Size = UDim2.new(1, -8, 1, -52)
-		radioList.Position = UDim2.new(0, 4, 0, 48)
-		radioList.TopImage = ""
-		radioList.Parent = root
-
-		radioLayout = Instance.new("UIListLayout")
-		radioLayout.Padding = UDim.new(0, 6)
-		radioLayout.SortOrder = Enum.SortOrder.LayoutOrder
-		radioLayout.Parent = radioList
-
+	if radioList and not radioEmpty then
 		radioEmpty = Instance.new("TextLabel")
 		radioEmpty.Name = "Empty"
 		radioEmpty.BackgroundTransparency = 1
@@ -3531,3059 +3377,887 @@ if game.GameId == 847722000 then
 		radioEmpty.Size = UDim2.new(1, -8, 0, 32)
 		radioEmpty.Position = UDim2.new(0, 4, 0, 8)
 		radioEmpty.Parent = radioList
+	end
+	updateRadioCanvas()
+end
 
-		return root
+local function pushRadioLine(name, message)
+	if not radioList then
+		return
+	end
+	if radioEmpty then
+		safeDestroy(radioEmpty)
+		radioEmpty = nil
+	end
+	name = tostring(name or "")
+	message = tostring(message or "")
+	if name == "" and message == "" then
+		return
 	end
 
-	local function applyRadioFullWidth()
-		local tab = RadioTab and RadioTab.__tab
-		local sides = tab and tab.Sides
-		local left = sides and sides[1]
-		local right = sides and sides[2]
-		if left then
-			left.Visible = true
-			left.Size = UDim2.new(1, 0, 1, 0)
-		end
-		if right then
-			right.Visible = false
-			right.Size = UDim2.new(0, 0, 1, 0)
-		end
-	end
+	local row = Instance.new("Frame")
+	row.Name = "RadioMessage"
+	row.BackgroundColor3 = Color3.fromRGB(5, 5, 5)
+	row.BackgroundTransparency = 0.12
+	row.BorderColor3 = Color3.fromRGB(28, 28, 28)
+	row.Size = UDim2.new(1, -8, 0, 36)
+	row.Parent = radioList
 
+	local text = Instance.new("TextLabel")
+	text.Name = "Text"
+	text.BackgroundTransparency = 1
+	text.Font = Enum.Font.SourceSans
+	text.RichText = true
+	text.TextColor3 = Color3.fromRGB(245, 245, 245)
+	text.TextSize = 24
+	text.TextXAlignment = Enum.TextXAlignment.Left
+	text.TextYAlignment = Enum.TextYAlignment.Center
+	text.TextTruncate = Enum.TextTruncate.AtEnd
+	text.Size = UDim2.new(1, -10, 1, 0)
+	text.Position = UDim2.new(0, 6, 0, 0)
+	text.Text = "<b>" .. richEscape(name) .. ":</b> " .. richEscape(message)
+	text.Parent = row
+
+	radioRows[#radioRows + 1] = row
+	while #radioRows > radioMaxRows do
+		local old = table.remove(radioRows, 1)
+		safeDestroy(old)
+	end
+	updateRadioCanvas()
+end
+
+local function pushRadioMessage(sender, message)
+	pushRadioLine(radioName(sender), message)
+end
+
+local function notifyRadioMessage(sender, message)
+	if st.radioNotifications ~= true then
+		return
+	end
+	Obsidian:Notify({
+		Title = "Radio",
+		Content = radioName(sender) .. ": " .. tostring(message or ""),
+		Duration = 4,
+	})
+end
+
+local function playRadioSound()
+	if st.radioSounds ~= true or #radioSounds <= 0 then
+		return
+	end
+	local sound = Instance.new("Sound")
+	sound.Name = "RakeRadioMessageSound"
+	sound.SoundId = radioSounds[math.random(1, #radioSounds)]
+	sound.Volume = 1
+	sound.Parent = Ws
+	sound.Ended:Connect(function()
+		safeDestroy(sound)
+	end)
 	pcall(function()
-		if RadioTab and RadioTab.__tab then
-			local refreshSides = RadioTab.__tab.RefreshSides
-			if type(refreshSides) == "function" then
-				RadioTab.__tab.RefreshSides = function(tab, ...)
-					local result = refreshSides(tab, ...)
-					applyRadioFullWidth()
-					return result
-				end
+		sound:Play()
+	end)
+	if type(task) == "table" and type(task.delay) == "function" then
+		task.delay(8, function()
+			safeDestroy(sound)
+		end)
+	end
+end
+
+local function getRadioValue(line, valueName)
+	local value = line and ffc(line, valueName)
+	return tostring(valOf(value, "") or "")
+end
+
+local function hydrateRadioChannel()
+	local channel = ffc(Rep, "RadioChannel")
+	if not channel then
+		return
+	end
+	clearRadioMessages()
+	for i = 1, 7 do
+		local line = ffc(channel, "Line" .. tostring(i))
+		local name = getRadioValue(line, "Name")
+		local msg = getRadioValue(line, "Msg")
+		if name ~= "" or msg ~= "" then
+			pushRadioLine(radioStoredName(name), msg)
+		end
+	end
+end
+
+local function makeRadioPanel()
+	local root = Instance.new("Frame")
+	root.Name = "RadioPanel"
+	root.BackgroundColor3 = Color3.fromRGB(8, 8, 8)
+	root.BackgroundTransparency = 0.05
+	root.BorderColor3 = Color3.fromRGB(24, 24, 24)
+	root.Size = UDim2.new(1, 0, 0, 390)
+
+	local header = Instance.new("TextLabel")
+	header.Name = "Header"
+	header.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+	header.BackgroundTransparency = 0.15
+	header.BorderColor3 = Color3.fromRGB(16, 16, 16)
+	header.Font = Enum.Font.SourceSansBold
+	header.Text = "RADIO"
+	header.TextColor3 = Color3.fromRGB(255, 255, 255)
+	header.TextSize = 30
+	header.Size = UDim2.new(1, -8, 0, 40)
+	header.Position = UDim2.new(0, 4, 0, 4)
+	header.Parent = root
+
+	radioList = Instance.new("ScrollingFrame")
+	radioList.Name = "Messages"
+	radioList.Active = true
+	radioList.BackgroundTransparency = 1
+	radioList.BorderSizePixel = 0
+	radioList.BottomImage = ""
+	radioList.CanvasSize = UDim2.new(0, 0, 0, 0)
+	radioList.MidImage = ""
+	radioList.ScrollBarThickness = 5
+	radioList.Size = UDim2.new(1, -8, 1, -52)
+	radioList.Position = UDim2.new(0, 4, 0, 48)
+	radioList.TopImage = ""
+	radioList.Parent = root
+
+	radioLayout = Instance.new("UIListLayout")
+	radioLayout.Padding = UDim.new(0, 6)
+	radioLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	radioLayout.Parent = radioList
+
+	radioEmpty = Instance.new("TextLabel")
+	radioEmpty.Name = "Empty"
+	radioEmpty.BackgroundTransparency = 1
+	radioEmpty.Font = Enum.Font.SourceSans
+	radioEmpty.Text = radioEmptyText
+	radioEmpty.TextColor3 = Color3.fromRGB(180, 180, 180)
+	radioEmpty.TextSize = 18
+	radioEmpty.Size = UDim2.new(1, -8, 0, 32)
+	radioEmpty.Position = UDim2.new(0, 4, 0, 8)
+	radioEmpty.Parent = radioList
+
+	return root
+end
+
+local function applyRadioFullWidth()
+	local tab = RadioTab and RadioTab.__tab
+	local sides = tab and tab.Sides
+	local left = sides and sides[1]
+	local right = sides and sides[2]
+	if left then
+		left.Visible = true
+		left.Size = UDim2.new(1, 0, 1, 0)
+	end
+	if right then
+		right.Visible = false
+		right.Size = UDim2.new(0, 0, 1, 0)
+	end
+end
+
+pcall(function()
+	if RadioTab and RadioTab.__tab then
+		local refreshSides = RadioTab.__tab.RefreshSides
+		if type(refreshSides) == "function" then
+			RadioTab.__tab.RefreshSides = function(tab, ...)
+				local result = refreshSides(tab, ...)
+				applyRadioFullWidth()
+				return result
 			end
-			applyRadioFullWidth()
-			local group = RadioTab.__tab:AddLeftGroupbox("Radio", "radio")
-			local panel = makeRadioPanel()
-			group:AddUIPassthrough("RadioLog", {
-				Instance = panel,
-				Height = 400,
-				Visible = true,
-			})
-			group:AddToggle("Rake_RadioSounds", {
-				Text = "Message sounds",
-				Default = st.radioSounds == true,
-				Callback = function(v)
-					st.radioSounds = v == true
-					cfgSet("radioSounds", st.radioSounds)
-				end,
-			})
-			group:AddToggle("Rake_RadioNotifications", {
-				Text = "Message notifications",
-				Default = st.radioNotifications == true,
-				Callback = function(v)
-					st.radioNotifications = v == true
-					cfgSet("radioNotifications", st.radioNotifications)
-				end,
-			})
-			applyRadioFullWidth()
+		end
+		applyRadioFullWidth()
+		local group = RadioTab.__tab:AddLeftGroupbox("Radio", "radio")
+		local panel = makeRadioPanel()
+		group:AddUIPassthrough("RadioLog", {
+			Instance = panel,
+			Height = 400,
+			Visible = true,
+		})
+		group:AddToggle("Rake_RadioSounds", {
+			Text = "Message sounds",
+			Default = st.radioSounds == true,
+			Callback = function(v)
+				st.radioSounds = v == true
+				cfgSet("radioSounds", st.radioSounds)
+			end,
+		})
+		group:AddToggle("Rake_RadioNotifications", {
+			Text = "Message notifications",
+			Default = st.radioNotifications == true,
+			Callback = function(v)
+				st.radioNotifications = v == true
+				cfgSet("radioNotifications", st.radioNotifications)
+			end,
+		})
+		applyRadioFullWidth()
+	end
+end)
+
+local radioRemote
+local function attachRadioRemote(remote)
+	if radioRemote == remote or not remote or not remote:IsA("RemoteEvent") then
+		return
+	end
+	radioRemote = remote
+	bind(remote.OnClientEvent, function(sender, message)
+		pushRadioMessage(sender, message)
+		playRadioSound()
+		notifyRadioMessage(sender, message)
+	end)
+end
+
+attachRadioRemote(ffc(Rep, "RadioChatEvent"))
+bind(Rep.ChildAdded, function(child)
+	if child.Name == "RadioChatEvent" then
+		attachRadioRemote(child)
+	end
+end)
+hydrateRadioChannel()
+bind(Rep.ChildAdded, function(child)
+	if child.Name == "RadioChannel" then
+		hydrateRadioChannel()
+	end
+end)
+
+local infoBubble
+local infoLbl
+local infoRoot
+local infoDrag
+local infoTgt = "Rake's Target : ?"
+local infoTime = "Time Until Day : ?"
+local infoPower = "Power : ?"
+
+local function fmtTime(v)
+	v = math.max(0, math.floor(tonumber(v) or 0))
+	local h = math.floor(v / 3600)
+	local m = math.floor((v % 3600) / 60)
+	local s = v % 60
+	if h > 0 then
+		return string.format("%d:%02d:%02d", h, m, s)
+	end
+	return string.format("%d:%02d", m, s)
+end
+
+local function fmtPower(v)
+	local pct = math.max(0, (tonumber(v) or 1000) / 10)
+	if pct % 1 == 0 then
+		return tostring(math.floor(pct))
+	end
+	return string.format("%.1f", pct)
+end
+
+local function infoText()
+	return infoTgt .. "\n" .. infoTime .. "\n" .. infoPower
+end
+
+local function bubbleParent()
+	local ok, hui = pcall(function()
+		if type(gethui) == "function" then
+			return gethui()
 		end
 	end)
-
-	local radioRemote
-	local function attachRadioRemote(remote)
-		if radioRemote == remote or not remote or not remote:IsA("RemoteEvent") then
-			return
-		end
-		radioRemote = remote
-		bind(remote.OnClientEvent, function(sender, message)
-			pushRadioMessage(sender, message)
-			playRadioSound()
-			notifyRadioMessage(sender, message)
-		end)
+	if ok and typeof(hui) == "Instance" then
+		return hui
 	end
-
-	attachRadioRemote(ffc(Rep, "RadioChatEvent"))
-	bind(Rep.ChildAdded, function(child)
-		if child.Name == "RadioChatEvent" then
-			attachRadioRemote(child)
-		end
+	local pg = clientBypass.getPlayerGui()
+	if pg then
+		return pg
+	end
+	local ok2, cg = pcall(function()
+		return ClonedService("CoreGui")
 	end)
-	hydrateRadioChannel()
-	bind(Rep.ChildAdded, function(child)
-		if child.Name == "RadioChannel" then
-			hydrateRadioChannel()
-		end
-	end)
-
-	local infoBubble
-	local infoLbl
-	local infoRoot
-	local infoDrag
-	local infoTgt = "Rake's Target : ?"
-	local infoTime = "Time Until Day : ?"
-	local infoPower = "Power : ?"
-
-	local function fmtTime(v)
-		v = math.max(0, math.floor(tonumber(v) or 0))
-		local h = math.floor(v / 3600)
-		local m = math.floor((v % 3600) / 60)
-		local s = v % 60
-		if h > 0 then
-			return string.format("%d:%02d:%02d", h, m, s)
-		end
-		return string.format("%d:%02d", m, s)
+	if ok2 and cg then
+		return cg
 	end
+	return nil
+end
 
-	local function fmtPower(v)
-		local pct = math.max(0, (tonumber(v) or 1000) / 10)
-		if pct % 1 == 0 then
-			return tostring(math.floor(pct))
-		end
-		return string.format("%.1f", pct)
+local function makeBubble()
+	if infoRoot and infoRoot.Parent and infoLbl and infoLbl.Parent then
+		return infoRoot
 	end
-
-	local function infoText()
-		return infoTgt .. "\n" .. infoTime .. "\n" .. infoPower
-	end
-
-	local function bubbleParent()
-		local ok, hui = pcall(function()
-			if type(gethui) == "function" then
-				return gethui()
-			end
-		end)
-		if ok and typeof(hui) == "Instance" then
-			return hui
-		end
-		local pg = clientBypass.getPlayerGui()
-		if pg then
-			return pg
-		end
-		local ok2, cg = pcall(function()
-			return ClonedService("CoreGui")
-		end)
-		if ok2 and cg then
-			return cg
-		end
+	local par = bubbleParent()
+	if not par then
 		return nil
 	end
-
-	local function makeBubble()
-		if infoRoot and infoRoot.Parent and infoLbl and infoLbl.Parent then
-			return infoRoot
-		end
-		local par = bubbleParent()
-		if not par then
-			return nil
-		end
-		local gui = par:FindFirstChild("__RakeInfoBubbleGui")
-		if not gui then
-			gui = Instance.new("ScreenGui")
-			gui.Name = "__RakeInfoBubbleGui"
-			gui.ResetOnSpawn = false
-			gui.IgnoreGuiInset = true
-			gui.DisplayOrder = 999999
-			gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-			gui.Parent = par
-		end
-		local root = gui:FindFirstChild("Bubble")
-		if not root then
-			root = Instance.new("Frame")
-			root.Name = "Bubble"
-			root.Size = UDim2.fromOffset(210, 72)
-			root.Position = UDim2.fromOffset(94, 96)
-			root.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
-			root.BackgroundTransparency = 0.12
-			root.BorderSizePixel = 0
-			root.Active = true
-			root.Visible = st.infoBubble == true
-			root.Parent = gui
-			local cr = Instance.new("UICorner")
-			cr.CornerRadius = UDim.new(0, 8)
-			cr.Parent = root
-			local stroke = Instance.new("UIStroke")
-			stroke.Thickness = 1
-			stroke.Transparency = 0.55
-			stroke.Color = Color3.fromRGB(140, 95, 255)
-			stroke.Parent = root
-			local pad = Instance.new("UIPadding")
-			pad.PaddingTop = UDim.new(0, 8)
-			pad.PaddingBottom = UDim.new(0, 8)
-			pad.PaddingLeft = UDim.new(0, 10)
-			pad.PaddingRight = UDim.new(0, 10)
-			pad.Parent = root
-		end
-		local lbl = root:FindFirstChild("Text")
-		if not lbl then
-			lbl = Instance.new("TextLabel")
-			lbl.Name = "Text"
-			lbl.BackgroundTransparency = 1
-			lbl.Size = UDim2.fromScale(1, 1)
-			lbl.Font = Enum.Font.Code
-			lbl.TextSize = 14
-			lbl.TextXAlignment = Enum.TextXAlignment.Left
-			lbl.TextYAlignment = Enum.TextYAlignment.Top
-			lbl.TextColor3 = Color3.fromRGB(235, 235, 240)
-			lbl.TextStrokeTransparency = 0.75
-			lbl.TextWrapped = false
-			lbl.RichText = false
-			lbl.Parent = root
-		end
-		infoBubble = gui
-		infoRoot = root
-		infoLbl = lbl
-		if not infoDrag or infoDrag.root ~= root then
-			infoDrag = {on = false, root = root}
-			bind(root.InputBegan, function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-					infoDrag.on = true
-					infoDrag.input = input
-					infoDrag.start = input.Position
-					infoDrag.pos = root.Position
-				end
-			end)
-			bind(root.InputEnded, function(input)
-				if input == infoDrag.input then
-					infoDrag.on = false
-					infoDrag.input = nil
-				end
-			end)
-			bind(InputService.InputChanged, function(input)
-				if infoDrag.on ~= true or not infoDrag.input then
-					return
-				end
-				if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
-					return
-				end
-				local delta = input.Position - infoDrag.start
-				root.Position = UDim2.new(infoDrag.pos.X.Scale, infoDrag.pos.X.Offset + delta.X, infoDrag.pos.Y.Scale, infoDrag.pos.Y.Offset + delta.Y)
-			end)
-		end
-		return root
+	local gui = par:FindFirstChild("__RakeInfoBubbleGui")
+	if not gui then
+		gui = Instance.new("ScreenGui")
+		gui.Name = "__RakeInfoBubbleGui"
+		gui.ResetOnSpawn = false
+		gui.IgnoreGuiInset = true
+		gui.DisplayOrder = 999999
+		gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+		gui.Parent = par
 	end
+	local root = gui:FindFirstChild("Bubble")
+	if not root then
+		root = Instance.new("Frame")
+		root.Name = "Bubble"
+		root.Size = UDim2.fromOffset(210, 72)
+		root.Position = UDim2.fromOffset(94, 96)
+		root.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+		root.BackgroundTransparency = 0.12
+		root.BorderSizePixel = 0
+		root.Active = true
+		root.Visible = st.infoBubble == true
+		root.Parent = gui
+		local cr = Instance.new("UICorner")
+		cr.CornerRadius = UDim.new(0, 8)
+		cr.Parent = root
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 1
+		stroke.Transparency = 0.55
+		stroke.Color = Color3.fromRGB(140, 95, 255)
+		stroke.Parent = root
+		local pad = Instance.new("UIPadding")
+		pad.PaddingTop = UDim.new(0, 8)
+		pad.PaddingBottom = UDim.new(0, 8)
+		pad.PaddingLeft = UDim.new(0, 10)
+		pad.PaddingRight = UDim.new(0, 10)
+		pad.Parent = root
+	end
+	local lbl = root:FindFirstChild("Text")
+	if not lbl then
+		lbl = Instance.new("TextLabel")
+		lbl.Name = "Text"
+		lbl.BackgroundTransparency = 1
+		lbl.Size = UDim2.fromScale(1, 1)
+		lbl.Font = Enum.Font.Code
+		lbl.TextSize = 14
+		lbl.TextXAlignment = Enum.TextXAlignment.Left
+		lbl.TextYAlignment = Enum.TextYAlignment.Top
+		lbl.TextColor3 = Color3.fromRGB(235, 235, 240)
+		lbl.TextStrokeTransparency = 0.75
+		lbl.TextWrapped = false
+		lbl.RichText = false
+		lbl.Parent = root
+	end
+	infoBubble = gui
+	infoRoot = root
+	infoLbl = lbl
+	if not infoDrag or infoDrag.root ~= root then
+		infoDrag = {on = false, root = root}
+		bind(root.InputBegan, function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				infoDrag.on = true
+				infoDrag.input = input
+				infoDrag.start = input.Position
+				infoDrag.pos = root.Position
+			end
+		end)
+		bind(root.InputEnded, function(input)
+			if input == infoDrag.input then
+				infoDrag.on = false
+				infoDrag.input = nil
+			end
+		end)
+		bind(InputService.InputChanged, function(input)
+			if infoDrag.on ~= true or not infoDrag.input then
+				return
+			end
+			if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
+				return
+			end
+			local delta = input.Position - infoDrag.start
+			root.Position = UDim2.new(infoDrag.pos.X.Scale, infoDrag.pos.X.Offset + delta.X, infoDrag.pos.Y.Scale, infoDrag.pos.Y.Offset + delta.Y)
+		end)
+	end
+	return root
+end
 
-	local function setBubbleVisible(v)
-		local root = makeBubble()
-		if root then
-			root.Visible = v == true
+local function setBubbleVisible(v)
+	local root = makeBubble()
+	if root then
+		root.Visible = v == true
+	end
+end
+
+local function syncBubble()
+	makeBubble()
+	if infoLbl and infoLbl.Parent then
+		infoLbl.Text = infoText()
+	end
+	setBubbleVisible(st.infoBubble)
+end
+
+local function setInfoTarget(txt)
+	local v = tostring(txt or "Rake's Target : ?")
+	if v == infoTgt then
+		return
+	end
+	infoTgt = v
+	syncBubble()
+end
+
+local function setInfoTime(txt)
+	local v = tostring(txt or "Time Until Day : ?")
+	if v == infoTime then
+		return
+	end
+	infoTime = v
+	syncBubble()
+end
+
+local function setInfoPower(txt)
+	local v = tostring(txt or "Power : ?")
+	if v == infoPower then
+		return
+	end
+	infoPower = v
+	syncBubble()
+end
+
+task.defer(function()
+	syncBubble()
+end)
+
+
+local function saveNow()
+	saveDirty = false
+	return saveCfg(saved)
+end
+
+local function eachEspDraw(fn)
+	if not esp then
+		return
+	end
+	for _, it in { esp.flare, esp.rake } do
+		if it and it.d then
+			pcall(fn, it.d)
 		end
 	end
-
-	local function syncBubble()
-		makeBubble()
-		if infoLbl and infoLbl.Parent then
-			infoLbl.Text = infoText()
-		end
-		setBubbleVisible(st.infoBubble)
-	end
-
-	local function setInfoTarget(txt)
-		local v = tostring(txt or "Rake's Target : ?")
-		if v == infoTgt then
-			return
-		end
-		infoTgt = v
-		syncBubble()
-	end
-
-	local function setInfoTime(txt)
-		local v = tostring(txt or "Time Until Day : ?")
-		if v == infoTime then
-			return
-		end
-		infoTime = v
-		syncBubble()
-	end
-
-	local function setInfoPower(txt)
-		local v = tostring(txt or "Power : ?")
-		if v == infoPower then
-			return
-		end
-		infoPower = v
-		syncBubble()
-	end
-
-	task.defer(function()
-		syncBubble()
-	end)
-
-
-	local function saveNow()
-		saveDirty = false
-		return saveCfg(saved)
-	end
-
-	local function eachEspDraw(fn)
-		if not esp then
-			return
-		end
-		for _, it in { esp.flare, esp.rake } do
+	for _, bucket in { esp.players, esp.drops, esp.scraps } do
+		for _, it in bucket do
 			if it and it.d then
 				pcall(fn, it.d)
 			end
 		end
-		for _, bucket in { esp.players, esp.drops, esp.scraps } do
-			for _, it in bucket do
-				if it and it.d then
-					pcall(fn, it.d)
-				end
-			end
-		end
-		for _, d in esp.locs do
-			if d then
-				pcall(fn, d)
-			end
+	end
+	for _, d in esp.locs do
+		if d then
+			pcall(fn, d)
 		end
 	end
+end
 
-	local function refreshEspStyle()
-		eachEspDraw(function(d)
-			d.Size = st.espSize
-			d.Outline = false
-		end)
-	end
+local function refreshEspStyle()
+	eachEspDraw(function(d)
+		d.Size = st.espSize
+		d.Outline = false
+	end)
+end
 
-	local function rawWin()
-		return Window and Window.__window or Obsidian.RawWindow
-	end
+local function rawWin()
+	return Window and Window.__window or Obsidian.RawWindow
+end
 
-	local function applyLayout()
-		local w = rawWin()
-		pcall(function()
-			if w and w.ApplyLayout then
-				w:ApplyLayout()
-			end
-		end)
-	end
-
-	local menuBind = ObsidianSettingsTab:CreateKeybind({
-		Name = "UI Toggle Keybind",
-		CurrentKeybind = st.uiBind,
-		Flag = "Obsidian_MenuToggle",
-		Mode = "Toggle",
-		NoUI = true,
-	})
-
+local function applyLayout()
+	local w = rawWin()
 	pcall(function()
-		local opt = Options[menuBind.__id]
-		if opt then
-			Library.ToggleKeybind = opt
-			opt:OnChanged(function()
-				st.uiBind = uiKeyName(opt.Value, st.uiBind)
-				cfgSet("uiBind", st.uiBind)
-			end)
+		if w and w.ApplyLayout then
+			w:ApplyLayout()
 		end
 	end)
+end
 
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Custom Cursor",
-		CurrentValue = st.uiCursor,
-		Flag = "Obsidian_CustomCursor",
-		Callback = function(v)
-			st.uiCursor = v == true
-			uiBoolSet("uiCursor", st.uiCursor)
-			Library.ShowCustomCursor = st.uiCursor
-		end,
-	})
+local menuBind = ObsidianSettingsTab:CreateKeybind({
+	Name = "UI Toggle Keybind",
+	CurrentKeybind = st.uiBind,
+	Flag = "Obsidian_MenuToggle",
+	Mode = "Toggle",
+	NoUI = true,
+})
 
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Lock Window Dragging",
-		CurrentValue = st.uiDragLock,
-		Flag = "Obsidian_DragLock",
-		Callback = function(v)
-			st.uiDragLock = v == true
-			uiBoolSet("uiDragLock", st.uiDragLock)
-			Library.CantDragForced = st.uiDragLock
-		end,
-	})
-
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Compact Sidebar",
-		CurrentValue = st.uiCompact,
-		Flag = "Obsidian_CompactSidebar",
-		Callback = function(v)
-			st.uiCompact = v == true
-			uiBoolSet("uiCompact", st.uiCompact)
-			pcall(function()
-				local w = rawWin()
-				if w and w.SetCompact then
-					w:SetCompact(st.uiCompact)
-				end
-			end)
-		end,
-	})
-
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Sidebar Resize Handle",
-		CurrentValue = st.uiSidebarResize,
-		Flag = "Obsidian_SidebarResize",
-		Callback = function(v)
-			st.uiSidebarResize = v == true
-			uiBoolSet("uiSidebarResize", st.uiSidebarResize)
-			local w = rawWin()
-			pcall(function()
-				if w then
-					w.EnableSidebarResize = st.uiSidebarResize
-				end
-			end)
-			applyLayout()
-		end,
-	})
-
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Sidebar Compacting",
-		CurrentValue = st.uiCompacting,
-		Flag = "Obsidian_SidebarCompacting",
-		Callback = function(v)
-			st.uiCompacting = v == true
-			uiBoolSet("uiCompacting", st.uiCompacting)
-			local w = rawWin()
-			pcall(function()
-				if w then
-					w.EnableCompacting = st.uiCompacting
-				end
-			end)
-			applyLayout()
-		end,
-	})
-
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Disable Compact Snap",
-		CurrentValue = st.uiNoSnap,
-		Flag = "Obsidian_NoCompactSnap",
-		Callback = function(v)
-			st.uiNoSnap = v == true
-			uiBoolSet("uiNoSnap", st.uiNoSnap)
-			local w = rawWin()
-			pcall(function()
-				if w then
-					w.DisableCompactingSnap = st.uiNoSnap
-				end
-			end)
-		end,
-	})
-
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Resizable Window",
-		CurrentValue = st.uiResizable,
-		Flag = "Obsidian_ResizableWindow",
-		Callback = function(v)
-			st.uiResizable = v == true
-			uiBoolSet("uiResizable", st.uiResizable)
-		end,
-	})
-
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Mobile Toggle/Lock Buttons",
-		CurrentValue = st.uiMobileButtons,
-		Flag = "Obsidian_MobileButtons",
-		Callback = function(v)
-			st.uiMobileButtons = v == true
-			uiBoolSet("uiMobileButtons", st.uiMobileButtons)
-		end,
-	})
-
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Mobile Buttons On Right",
-		CurrentValue = st.uiMobileRight,
-		Flag = "Obsidian_MobileRight",
-		Callback = function(v)
-			st.uiMobileRight = v == true
-			uiBoolSet("uiMobileRight", st.uiMobileRight)
-		end,
-	})
-
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Unlock Mouse While Open",
-		CurrentValue = st.uiUnlockMouse,
-		Flag = "Obsidian_UnlockMouse",
-		Callback = function(v)
-			st.uiUnlockMouse = v == true
-			uiBoolSet("uiUnlockMouse", st.uiUnlockMouse)
-		end,
-	})
-
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Search Bar",
-		CurrentValue = st.uiSearchBar,
-		Flag = "Obsidian_SearchBar",
-		Callback = function(v)
-			st.uiSearchBar = v == true
-			uiBoolSet("uiSearchBar", st.uiSearchBar)
-		end,
-	})
-
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Global Search",
-		CurrentValue = st.uiGlobalSearch,
-		Flag = "Obsidian_GlobalSearch",
-		Callback = function(v)
-			st.uiGlobalSearch = v == true
-			uiBoolSet("uiGlobalSearch", st.uiGlobalSearch)
-			Library.GlobalSearch = st.uiGlobalSearch
-		end,
-	})
-
-	ObsidianSettingsTab:CreateToggle({
-		Name = "Toggle Frames In Keybinds",
-		CurrentValue = st.uiToggleFrames,
-		Flag = "Obsidian_ToggleFrames",
-		Callback = function(v)
-			st.uiToggleFrames = v == true
-			uiBoolSet("uiToggleFrames", st.uiToggleFrames)
-			Library.ShowToggleFrameInKeybinds = st.uiToggleFrames
-		end,
-	})
-
-	local dpiVals = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" }
-	local dpiNums = { 50, 75, 100, 125, 150, 175, 200 }
-
-	local function dpiNum(v)
-		if type(v) == "table" then
-			local tv = v[1] or v.Value or v.Option
-			if tv == nil then
-				for k, on in next, v do
-					if on then
-						tv = k
-						break
-					end
-				end
-			end
-			v = tv
-		end
-
-		local s = tostring(v or "")
-		s = s:gsub("%%", "")
-		s = s:match("[-%d%.]+") or ""
-		return math.clamp(tonumber(s) or 100, 50, 200)
-	end
-
-	local function dpiOpt(v)
-		local n = dpiNum(v)
-		local best = 100
-		local dist = math.huge
-		for _, x in dpiNums do
-			local d = math.abs(n - x)
-			if d < dist then
-				dist = d
-				best = x
-			end
-		end
-		return tostring(best) .. "%"
-	end
-
-	ObsidianSettingsTab:CreateDropdown({
-		Name = "DPI Scale",
-		Values = dpiVals,
-		CurrentOption = dpiOpt(st.uiDpi),
-		Flag = "Obsidian_DpiScale",
-		Callback = function(v)
-			local n = dpiNum(v)
-			st.uiDpi = n
-			cfgSet("uiDpi", n)
-			pcall(function()
-				Library:SetDPIScale(n)
-			end)
-		end,
-	})
-
-	ObsidianSettingsTab:CreateSlider({
-		Name = "Corner Radius",
-		Range = {0, 20},
-		Increment = 1,
-		CurrentValue = st.uiCorner,
-		Flag = "Obsidian_CornerRadius",
-		Callback = function(v)
-			st.uiCorner = math.clamp(tonumber(v) or 4, 0, 20)
-			cfgSet("uiCorner", st.uiCorner)
-			pcall(function()
-				local w = rawWin()
-				if w and w.SetCornerRadius then
-					w:SetCornerRadius(st.uiCorner)
-				end
-			end)
-		end,
-	})
-
-	SettingsTab:CreateLabel("Config Saving : " .. (fileApi and "Enabled" or "Unavailable"))
-
-	SettingsTab:CreateButton({
-		Name = "Save Settings Now",
-		Callback = function()
-			local ok = saveNow()
-			pcall(function()
-				Obsidian:Notify({
-					Title = "Settings",
-					Content = ok and "Saved settings." or "Executor file API is missing, settings cannot be saved.",
-					Duration = 3,
-					Image = 4483362458,
-				})
-			end)
-		end,
-	})
-
-	SettingsTab:CreateButton({
-		Name = "Reset Saved Settings",
-		Callback = function()
-			saved = {}
-			for k in st do
-				st[k] = nil
-			end
-			pcall(function()
-				if type(delfile) == "function" and (not hasFile or isfile(cfgFile)) then
-					delfile(cfgFile)
-				end
-			end)
-			pcall(function()
-				Obsidian:Notify({
-					Title = "Settings",
-					Content = "Reset saved settings. Reload the script to apply defaults.",
-					Duration = 3,
-					Image = 4483362458,
-				})
-			end)
-		end,
-	})
-
-	SettingsTab:CreateDivider()
-
-	SettingsTab:CreateToggle({
-		Name = "Adonis Bypass",
-		CurrentValue = st.adonisBypass,
-		Flag = "Settings_AdonisBypass",
-		Callback = function(v)
-			st.adonisBypass = v == true
-			_G.RakeAdonisBypass = st.adonisBypass
-			cfgSet("adonisBypass", st.adonisBypass)
-			if st.adonisBypass then
-				task.spawn(function()
-					runAdonisBypass(true)
-				end)
-			end
-		end,
-	})
-
-	SettingsTab:CreateSlider({
-		Name = "ESP Text Size",
-		Range = {8, 24},
-		Increment = 1,
-		CurrentValue = st.espSize,
-		Flag = "Settings_ESPTextSize",
-		Callback = function(v)
-			st.espSize = math.clamp(tonumber(v) or 12, 8, 24)
-			cfgSet("espSize", st.espSize)
-			refreshEspStyle()
-		end,
-	})
-
-	SettingsTab:CreateSlider({
-		Name = "ESP Scan Delay",
-		Range = {0.2, 3},
-		Increment = 0.05,
-		CurrentValue = st.espScan,
-		Flag = "Settings_ESPScanDelay",
-		Callback = function(v)
-			st.espScan = math.clamp(tonumber(v) or 0.75, 0.2, 3)
-			cfgSet("espScan", st.espScan)
-		end,
-	})
-
-	SettingsTab:CreateSlider({
-		Name = "ESP Max Distance",
-		Range = {0, 5000},
-		Increment = 50,
-		CurrentValue = st.espMax,
-		Flag = "Settings_ESPMaxDistance",
-		Callback = function(v)
-			st.espMax = math.clamp(tonumber(v) or 0, 0, 5000)
-			cfgSet("espMax", st.espMax)
-		end,
-	})
-
-	SettingsTab:CreateToggle({
-		Name = "ESP Highlights",
-		CurrentValue = st.espChams,
-		Flag = "Settings_ESPHighlights",
-		Callback = function(v)
-			st.espChams = v == true
-			cfgSet("espChams", st.espChams)
-			if cleanupEsp then
-				cleanupEsp("flare")
-				cleanupEsp("rake")
-				cleanupEsp("players")
-				cleanupEsp("scraps")
-				cleanupEsp("traps")
-			end
-		end,
-	})
-
-	SettingsTab:CreateToggle({
-		Name = "ESP Show Distance",
-		CurrentValue = st.espDist,
-		Flag = "Settings_ESPShowDistance",
-		Callback = function(v)
-			st.espDist = v == true
-			cfgSet("espDist", st.espDist)
-		end,
-	})
-
-	SettingsTab:CreateDivider()
-
-	SettingsTab:CreateButton({
-		Name = "Unload Script",
-		Callback = function()
-			if typeof(DestroyUI) == "function" then
-				DestroyUI()
-				return
-			end
-			AllowRunService = false
-			saveNow()
-			pcall(function()
-				if cleanupEsp then
-					cleanupEsp()
-				end
-			end)
-			wipeCharConns()
-			if clientBypass and clientBypass.wipeFovConns then
-				clientBypass.wipeFovConns()
-			end
-			if clientBypass and clientBypass.restoreMovementPatches then
-				clientBypass.restoreMovementPatches()
-			end
-			if clientBypass and clientBypass.restoreHiddenUi then
-				clientBypass.restoreHiddenUi()
-			end
-			if wipeFog then
-				wipeFog()
-			end
-			wipeConns()
-			safeDestroy(FreeCamPart)
-			safeDestroy(HidePartHightLight)
-			safeDestroy(HidePart)
-			safeDestroy(infoBubble)
-			infoBubble = nil
-			infoRoot = nil
-			infoLbl = nil
-			pcall(function() genv.RakeGui = false end)
-			pcall(function() Obsidian:Destroy() end)
-		end,
-	})
-
-	local fogCons = {}
-	local fogLast = nil
-
-	wipeFog = function()
-		for i = #fogCons, 1, -1 do
-			local c = fogCons[i]
-			if c then
-				pcall(function()
-					c:Disconnect()
-				end)
-			end
-			fogCons[i] = nil
-		end
-	end
-
-	local function bindFog(sig, fn)
-		if not sig or type(fn) ~= "function" then
-			return nil
-		end
-		local ok, c = pcall(function()
-			return sig:Connect(fn)
-		end)
-		if ok and c then
-			fogCons[#fogCons + 1] = c
-			return c
-		end
-		return nil
-	end
-
-	local function setFogOff()
-		if not Lit then
-			return
-		end
-		if fogLast == nil then
-			fogLast = tonumber(Lit.FogEnd) or 75
-		end
-		if Lit.FogEnd ~= 9e9 then
-			Lit.FogEnd = 9e9
-		end
-	end
-
-	local function watchFog()
-		wipeFog()
-		if _G.NoFog ~= true or not Lit then
-			return
-		end
-		setFogOff()
-		bindFog(Lit:GetPropertyChangedSignal("FogEnd"), function()
-			if _G.NoFog == true then
-				setFogOff()
-			end
+pcall(function()
+	local opt = Options[menuBind.__id]
+	if opt then
+		Library.ToggleKeybind = opt
+		opt:OnChanged(function()
+			st.uiBind = uiKeyName(opt.Value, st.uiBind)
+			cfgSet("uiBind", st.uiBind)
 		end)
 	end
+end)
 
-	ClientTab:CreateToggle({
-		Name = "No Fog",
-		CurrentValue = st.noFog,
-		Flag = "NoFog",
-		Callback = function(state)
-			_G.NoFog = state == true
-			st.noFog = _G.NoFog
-			cfgSet("noFog", st.noFog)
-			if _G.NoFog == true then
-				watchFog()
-			else
-				wipeFog()
-				if Lit then
-					Lit.FogEnd = fogLast or 75
-				end
+ObsidianSettingsTab:CreateToggle({
+	Name = "Custom Cursor",
+	CurrentValue = st.uiCursor,
+	Flag = "Obsidian_CustomCursor",
+	Callback = function(v)
+		st.uiCursor = v == true
+		uiBoolSet("uiCursor", st.uiCursor)
+		Library.ShowCustomCursor = st.uiCursor
+	end,
+})
+
+ObsidianSettingsTab:CreateToggle({
+	Name = "Lock Window Dragging",
+	CurrentValue = st.uiDragLock,
+	Flag = "Obsidian_DragLock",
+	Callback = function(v)
+		st.uiDragLock = v == true
+		uiBoolSet("uiDragLock", st.uiDragLock)
+		Library.CantDragForced = st.uiDragLock
+	end,
+})
+
+ObsidianSettingsTab:CreateToggle({
+	Name = "Compact Sidebar",
+	CurrentValue = st.uiCompact,
+	Flag = "Obsidian_CompactSidebar",
+	Callback = function(v)
+		st.uiCompact = v == true
+		uiBoolSet("uiCompact", st.uiCompact)
+		pcall(function()
+			local w = rawWin()
+			if w and w.SetCompact then
+				w:SetCompact(st.uiCompact)
 			end
-		end,
-	})
+		end)
+	end,
+})
 
-	watchFog()
-
-	ClientTab:CreateToggle({
-		Name = "Bypass Death / Intro FX",
-		CurrentValue = st.disableDeathFx,
-		Flag = "BypassDeathIntroFx",
-		Callback = function(state)
-			st.disableDeathFx = state == true
-			_G.RakeDisableDeathFx = st.disableDeathFx
-			cfgSet("disableDeathFx", st.disableDeathFx)
-			if st.disableDeathFx then
-				clientBypass.applyDeathFxBypass()
-				clientBypass.applyCH(true)
+ObsidianSettingsTab:CreateToggle({
+	Name = "Sidebar Resize Handle",
+	CurrentValue = st.uiSidebarResize,
+	Flag = "Obsidian_SidebarResize",
+	Callback = function(v)
+		st.uiSidebarResize = v == true
+		uiBoolSet("uiSidebarResize", st.uiSidebarResize)
+		local w = rawWin()
+		pcall(function()
+			if w then
+				w.EnableSidebarResize = st.uiSidebarResize
 			end
-		end,
-	})
+		end)
+		applyLayout()
+	end,
+})
 
-	ClientTab:CreateToggle({
-		Name = "Disable Motion Blur",
-		CurrentValue = st.disableMotionBlur,
-		Flag = "DisableMotionBlur",
-		Callback = function(state)
-			st.disableMotionBlur = state == true
-			_G.RakeDisableMotionBlur = st.disableMotionBlur
-			cfgSet("disableMotionBlur", st.disableMotionBlur)
-			if st.disableMotionBlur then
-				clientBypass.applyMotionBlurBypass()
-				clientBypass.applyCH(true)
+ObsidianSettingsTab:CreateToggle({
+	Name = "Sidebar Compacting",
+	CurrentValue = st.uiCompacting,
+	Flag = "Obsidian_SidebarCompacting",
+	Callback = function(v)
+		st.uiCompacting = v == true
+		uiBoolSet("uiCompacting", st.uiCompacting)
+		local w = rawWin()
+		pcall(function()
+			if w then
+				w.EnableCompacting = st.uiCompacting
 			end
-		end,
-	})
+		end)
+		applyLayout()
+	end,
+})
 
-	ClientTab:CreateToggle({
-		Name = "Disable Esc/Menu FX",
-		CurrentValue = st.disableMenuFx,
-		Flag = "DisableEscMenuFx",
-		Callback = function(state)
-			st.disableMenuFx = state == true
-			_G.RakeDisableMenuFx = st.disableMenuFx
-			cfgSet("disableMenuFx", st.disableMenuFx)
-			if st.disableMenuFx then
-				clientBypass.applyMenuFxBypass()
+ObsidianSettingsTab:CreateToggle({
+	Name = "Disable Compact Snap",
+	CurrentValue = st.uiNoSnap,
+	Flag = "Obsidian_NoCompactSnap",
+	Callback = function(v)
+		st.uiNoSnap = v == true
+		uiBoolSet("uiNoSnap", st.uiNoSnap)
+		local w = rawWin()
+		pcall(function()
+			if w then
+				w.DisableCompactingSnap = st.uiNoSnap
 			end
-		end,
-	})
+		end)
+	end,
+})
 
-	ClientTab:CreateToggle({
-		Name = "Intro Bypass / Restore UI",
-		CurrentValue = st.introBypass,
-		Flag = "IntroBypassRestoreUi",
-		Callback = function(state)
-			st.introBypass = state == true
-			_G.RakeIntroBypass = st.introBypass
-			cfgSet("introBypass", st.introBypass)
-			if st.introBypass then
-				clientBypass.applyIntroBypass()
-			else
-				_G.RakeIntroBypass = false
-			end
-		end,
-	})
+ObsidianSettingsTab:CreateToggle({
+	Name = "Resizable Window",
+	CurrentValue = st.uiResizable,
+	Flag = "Obsidian_ResizableWindow",
+	Callback = function(v)
+		st.uiResizable = v == true
+		uiBoolSet("uiResizable", st.uiResizable)
+	end,
+})
 
-	ClientTab:CreateButton({
-		Name = "Restore CoreGui",
-		Callback = function()
-			clientBypass.restoreCoreGui()
-			Obsidian:Notify({
-				Title = "Client",
-				Content = "Topbar, reset, backpack, player list, chat, and mouse icon restored.",
-				Duration = 3,
-				Image = 4483362458,
-			})
-		end,
-	})
+ObsidianSettingsTab:CreateToggle({
+	Name = "Mobile Toggle/Lock Buttons",
+	CurrentValue = st.uiMobileButtons,
+	Flag = "Obsidian_MobileButtons",
+	Callback = function(v)
+		st.uiMobileButtons = v == true
+		uiBoolSet("uiMobileButtons", st.uiMobileButtons)
+	end,
+})
 
-	ClientTab:CreateButton({
-		Name = "Remove Intro GUI",
-		Callback = function()
-			local removed = clientBypass.removeIntroGui()
-			setScriptGlobal("IsLoading", nil)
-			setScriptGlobal("SLoaded", true)
-			clientBypass.restoreCoreGui()
-			Obsidian:Notify({
-				Title = "Intro",
-				Content = "Removed intro GUI count: " .. tostring(removed),
-				Duration = 3,
-				Image = 4483362458,
-			})
-		end,
-	})
+ObsidianSettingsTab:CreateToggle({
+	Name = "Mobile Buttons On Right",
+	CurrentValue = st.uiMobileRight,
+	Flag = "Obsidian_MobileRight",
+	Callback = function(v)
+		st.uiMobileRight = v == true
+		uiBoolSet("uiMobileRight", st.uiMobileRight)
+	end,
+})
 
-	ClientTab:CreateToggle({
-		Name = "Disable Shadows",
-		CurrentValue = st.disableShadows,
-		Flag = "DisableShadows",
-		Callback = function(state)
-			st.disableShadows = state == true
-			_G.RakeDisableShadows = st.disableShadows
-			cfgSet("disableShadows", st.disableShadows)
-			clientBypass.fireSettingsChanged("Shadows", not st.disableShadows)
-			clientBypass.applyGameSettingOverrides()
-		end,
-	})
+ObsidianSettingsTab:CreateToggle({
+	Name = "Unlock Mouse While Open",
+	CurrentValue = st.uiUnlockMouse,
+	Flag = "Obsidian_UnlockMouse",
+	Callback = function(v)
+		st.uiUnlockMouse = v == true
+		uiBoolSet("uiUnlockMouse", st.uiUnlockMouse)
+	end,
+})
 
-	ClientTab:CreateToggle({
-		Name = "Force Chat Enabled",
-		CurrentValue = st.forceChat,
-		Flag = "ForceChatEnabled",
-		Callback = function(state)
-			st.forceChat = state == true
-			_G.RakeForceChat = st.forceChat
-			cfgSet("forceChat", st.forceChat)
-			clientBypass.fireSettingsChanged("Chat", st.forceChat)
-			clientBypass.applyGameSettingOverrides()
-		end,
-	})
+ObsidianSettingsTab:CreateToggle({
+	Name = "Search Bar",
+	CurrentValue = st.uiSearchBar,
+	Flag = "Obsidian_SearchBar",
+	Callback = function(v)
+		st.uiSearchBar = v == true
+		uiBoolSet("uiSearchBar", st.uiSearchBar)
+	end,
+})
 
-	ClientTab:CreateToggle({
-		Name = "Mute Game Music",
-		CurrentValue = st.muteGameMusic,
-		Flag = "MuteGameMusic",
-		Callback = function(state)
-			st.muteGameMusic = state == true
-			cfgSet("muteGameMusic", st.muteGameMusic)
-			clientBypass.fireSettingsChanged("GameMusic", not st.muteGameMusic)
-			clientBypass.applyGameSettingOverrides()
-		end,
-	})
+ObsidianSettingsTab:CreateToggle({
+	Name = "Global Search",
+	CurrentValue = st.uiGlobalSearch,
+	Flag = "Obsidian_GlobalSearch",
+	Callback = function(v)
+		st.uiGlobalSearch = v == true
+		uiBoolSet("uiGlobalSearch", st.uiGlobalSearch)
+		Library.GlobalSearch = st.uiGlobalSearch
+	end,
+})
 
-	ClientTab:CreateToggle({
-		Name = "Mute Chase Music",
-		CurrentValue = st.muteChaseMusic,
-		Flag = "MuteChaseMusic",
-		Callback = function(state)
-			st.muteChaseMusic = state == true
-			cfgSet("muteChaseMusic", st.muteChaseMusic)
-			clientBypass.fireSettingsChanged("ChaseMusic", not st.muteChaseMusic)
-			clientBypass.applyGameSettingOverrides()
-		end,
-	})
+ObsidianSettingsTab:CreateToggle({
+	Name = "Toggle Frames In Keybinds",
+	CurrentValue = st.uiToggleFrames,
+	Flag = "Obsidian_ToggleFrames",
+	Callback = function(v)
+		st.uiToggleFrames = v == true
+		uiBoolSet("uiToggleFrames", st.uiToggleFrames)
+		Library.ShowToggleFrameInKeybinds = st.uiToggleFrames
+	end,
+})
 
-	ClientTab:CreateToggle({
-		Name = "Force Nametags",
-		CurrentValue = st.enableNametags,
-		Flag = "ForceNametags",
-		Callback = function(state)
-			st.enableNametags = state == true
-			_G.RakeForceNametags = st.enableNametags
-			cfgSet("enableNametags", st.enableNametags)
-			clientBypass.fireSettingsChanged("Nametags", st.enableNametags)
-			clientBypass.applyGameSettingOverrides()
-		end,
-	})
+local dpiVals = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" }
+local dpiNums = { 50, 75, 100, 125, 150, 175, 200 }
 
-	ClientTab:CreateToggle({
-		Name = "Force Sixth Sense",
-		CurrentValue = st.enableSixthSense,
-		Flag = "ForceSixthSense",
-		Callback = function(state)
-			st.enableSixthSense = state == true
-			_G.RakeForceSixthSense = st.enableSixthSense
-			cfgSet("enableSixthSense", st.enableSixthSense)
-			clientBypass.fireSettingsChanged("SixthSense", st.enableSixthSense)
-			clientBypass.applyGameSettingOverrides()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Mute Movement Loops",
-		CurrentValue = st.muteMovementSounds,
-		Flag = "MuteMovementSounds",
-		Callback = function(state)
-			st.muteMovementSounds = state == true
-			_G.RakeMuteMovementSounds = st.muteMovementSounds
-			cfgSet("muteMovementSounds", st.muteMovementSounds)
-			if st.muteMovementSounds then
-				clientBypass.applySoundBypasses()
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Mute Footsteps",
-		CurrentValue = st.muteFootsteps,
-		Flag = "MuteFootsteps",
-		Callback = function(state)
-			st.muteFootsteps = state == true
-			_G.RakeMuteFootsteps = st.muteFootsteps
-			cfgSet("muteFootsteps", st.muteFootsteps)
-			if st.muteFootsteps then
-				clientBypass.applySoundBypasses()
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Mute Jump/Land Sounds",
-		CurrentValue = st.muteJumpLand,
-		Flag = "MuteJumpLandSounds",
-		Callback = function(state)
-			st.muteJumpLand = state == true
-			_G.RakeMuteJumpLand = st.muteJumpLand
-			cfgSet("muteJumpLand", st.muteJumpLand)
-			if st.muteJumpLand then
-				clientBypass.applySoundBypasses()
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Mute Water/Freefall Sounds",
-		CurrentValue = st.muteWaterFall,
-		Flag = "MuteWaterFreefallSounds",
-		Callback = function(state)
-			st.muteWaterFall = state == true
-			_G.RakeMuteWaterFall = st.muteWaterFall
-			cfgSet("muteWaterFall", st.muteWaterFall)
-			if st.muteWaterFall then
-				clientBypass.applySoundBypasses()
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Mute Death Sounds",
-		CurrentValue = st.muteDeathSounds,
-		Flag = "MuteDeathSounds",
-		Callback = function(state)
-			st.muteDeathSounds = state == true
-			_G.RakeMuteDeathSounds = st.muteDeathSounds
-			cfgSet("muteDeathSounds", st.muteDeathSounds)
-			if st.muteDeathSounds then
-				clientBypass.applySoundBypasses()
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Hide Prompt UI",
-		CurrentValue = st.hidePromptUi,
-		Flag = "HidePromptUi",
-		Callback = function(state)
-			st.hidePromptUi = state == true
-			_G.RakeHidePromptUi = st.hidePromptUi
-			cfgSet("hidePromptUi", st.hidePromptUi)
-			clientBypass.applyPromptUiBypass()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Freeze Look Angles",
-		CurrentValue = st.freezeLookAngles,
-		Flag = "FreezeLookAngles",
-		Callback = function(state)
-			st.freezeLookAngles = state == true
-			_G.RakeFreezeLookAngles = st.freezeLookAngles
-			cfgSet("freezeLookAngles", st.freezeLookAngles)
-			if st.freezeLookAngles then
-				clientBypass.applyLookFreeze()
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Hide Death Messages",
-		CurrentValue = st.hideDeathMessages,
-		Flag = "HideDeathMessages",
-		Callback = function(state)
-			st.hideDeathMessages = state == true
-			_G.RakeHideDeathMessages = st.hideDeathMessages
-			cfgSet("hideDeathMessages", st.hideDeathMessages)
-			clientBypass.applyDeathMessageBypass()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Block Favorite Prompts",
-		CurrentValue = st.blockFavoritePrompts,
-		Flag = "BlockFavoritePrompts",
-		Callback = function(state)
-			st.blockFavoritePrompts = state == true
-			_G.RakeBlockFavoritePrompts = st.blockFavoritePrompts
-			cfgSet("blockFavoritePrompts", st.blockFavoritePrompts)
-			clientBypass.cleanupPromptModals()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Block Group Prompts",
-		CurrentValue = st.blockGroupPrompts,
-		Flag = "BlockGroupPrompts",
-		Callback = function(state)
-			st.blockGroupPrompts = state == true
-			_G.RakeBlockGroupPrompts = st.blockGroupPrompts
-			cfgSet("blockGroupPrompts", st.blockGroupPrompts)
-			clientBypass.cleanupPromptModals()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Force PC Device",
-		CurrentValue = st.forcePcDevice,
-		Flag = "ForcePcDevice",
-		Callback = function(state)
-			st.forcePcDevice = state == true
-			cfgSet("forcePcDevice", st.forcePcDevice)
-			clientBypass.applyDeviceSpoof()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Flashlight No Shadows",
-		CurrentValue = st.flashlightNoShadows,
-		Flag = "FlashlightNoShadows",
-		Callback = function(state)
-			st.flashlightNoShadows = state == true
-			_G.RakeFlashlightNoShadows = st.flashlightNoShadows
-			cfgSet("flashlightNoShadows", st.flashlightNoShadows)
-			clientBypass.applyLightToolBypasses()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Flashlight Boost",
-		CurrentValue = st.flashlightBoost,
-		Flag = "FlashlightBoost",
-		Callback = function(state)
-			st.flashlightBoost = state == true
-			_G.RakeFlashlightBoost = st.flashlightBoost
-			cfgSet("flashlightBoost", st.flashlightBoost)
-			clientBypass.applyLightToolBypasses()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Block Menu Reopen",
-		CurrentValue = st.disableMenuReopen,
-		Flag = "BlockMenuReopen",
-		Callback = function(state)
-			st.disableMenuReopen = state == true
-			_G.RakeDisableMenuReopen = st.disableMenuReopen
-			cfgSet("disableMenuReopen", st.disableMenuReopen)
-			clientBypass.removeIntroClones()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Force Backpack Enabled",
-		CurrentValue = st.forceBackpack,
-		Flag = "ForceBackpackEnabled",
-		Callback = function(state)
-			st.forceBackpack = state == true
-			_G.RakeForceBackpack = st.forceBackpack
-			cfgSet("forceBackpack", st.forceBackpack)
-			clientBypass.forceCoreParts()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Force Mouse Icon",
-		CurrentValue = st.forceMouseIcon,
-		Flag = "ForceMouseIcon",
-		Callback = function(state)
-			st.forceMouseIcon = state == true
-			_G.RakeForceMouseIcon = st.forceMouseIcon
-			cfgSet("forceMouseIcon", st.forceMouseIcon)
-			clientBypass.forceCoreParts()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Force Topbar Enabled",
-		CurrentValue = st.forceTopbar,
-		Flag = "ForceTopbarEnabled",
-		Callback = function(state)
-			st.forceTopbar = state == true
-			_G.RakeForceTopbar = st.forceTopbar
-			cfgSet("forceTopbar", st.forceTopbar)
-			clientBypass.forceCoreParts()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Disable Visual FX",
-		CurrentValue = st.disableVisualFx,
-		Flag = "DisableVisualFX",
-		Callback = function(state)
-			st.disableVisualFx = state == true
-			_G.RakeDisableVisualFx = st.disableVisualFx
-			cfgSet("disableVisualFx", st.disableVisualFx)
-			clientBypass.applyCH(true)
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Disable Camera Shake",
-		CurrentValue = st.disableCameraShake,
-		Flag = "DisableCameraShake",
-		Callback = function(state)
-			st.disableCameraShake = state == true
-			_G.RakeDisableCameraShake = st.disableCameraShake
-			cfgSet("disableCameraShake", st.disableCameraShake)
-			clientBypass.applyCH(true)
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Disable Camera Bobbing",
-		CurrentValue = st.disableCameraBobbing,
-		Flag = "DisableCameraBobbing",
-		Callback = function(state)
-			st.disableCameraBobbing = state == true
-			_G.RakeDisableCameraBobbing = st.disableCameraBobbing
-			cfgSet("disableCameraBobbing", st.disableCameraBobbing)
-			if st.disableCameraBobbing then
-				clientBypass.applyCH(true)
-			else
-				clientBypass.restoreMovementPatches()
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Hide Location Popups",
-		CurrentValue = st.hideLocationPopups,
-		Flag = "HideLocationPopups",
-		Callback = function(state)
-			st.hideLocationPopups = state == true
-			_G.RakeHideLocationPopups = st.hideLocationPopups
-			cfgSet("hideLocationPopups", st.hideLocationPopups)
-			clientBypass.applyCH(true)
-			clientBypass.applyClientPopupBypasses()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Hide Scrap Popups",
-		CurrentValue = st.hideScrapPopups,
-		Flag = "HideScrapPopups",
-		Callback = function(state)
-			st.hideScrapPopups = state == true
-			_G.RakeHideScrapPopups = st.hideScrapPopups
-			cfgSet("hideScrapPopups", st.hideScrapPopups)
-			clientBypass.applyClientPopupBypasses()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Hide Trap Struggle UI",
-		CurrentValue = st.hideTrapGui,
-		Flag = "HideTrapStruggleUI",
-		Callback = function(state)
-			st.hideTrapGui = state == true
-			_G.RakeHideTrapGui = st.hideTrapGui
-			cfgSet("hideTrapGui", st.hideTrapGui)
-			clientBypass.applyClientPopupBypasses()
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "No Downed / Ragdoll",
-		CurrentValue = st.noDowned,
-		Flag = "NoDownedRagdoll",
-		Callback = function(state)
-			st.noDowned = state == true
-			_G.RakeNoDowned = st.noDowned
-			cfgSet("noDowned", st.noDowned)
-			clientBypass.applyCharBypasses()
-			clientBypass.applyCH(true)
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "No Movement Lock",
-		CurrentValue = st.noMoveLock,
-		Flag = "NoMovementLock",
-		Callback = function(state)
-			st.noMoveLock = state == true
-			_G.RakeNoMoveLock = st.noMoveLock
-			cfgSet("noMoveLock", st.noMoveLock)
-			clientBypass.applyCharBypasses()
-			clientBypass.applyCH(true)
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "No Trap Lock",
-		CurrentValue = st.noTrapLock,
-		Flag = "NoTrapLock",
-		Callback = function(state)
-			st.noTrapLock = state == true
-			_G.RakeNoTrapLock = st.noTrapLock
-			cfgSet("noTrapLock", st.noTrapLock)
-			clientBypass.applyCharBypasses()
-			clientBypass.applyCH(true)
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "No Jumpscare Camera",
-		CurrentValue = st.noJumpscareCam,
-		Flag = "NoJumpscareCamera",
-		Callback = function(state)
-			st.noJumpscareCam = state == true
-			_G.RakeNoJumpscareCam = st.noJumpscareCam
-			cfgSet("noJumpscareCam", st.noJumpscareCam)
-			clientBypass.applyCH(true)
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "No Chase Static",
-		CurrentValue = st.noChaseStatic,
-		Flag = "NoChaseStatic",
-		Callback = function(state)
-			st.noChaseStatic = state == true
-			_G.RakeNoChaseStatic = st.noChaseStatic
-			cfgSet("noChaseStatic", st.noChaseStatic)
-			clientBypass.applyCH(true)
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Fullbright",
-		CurrentValue = st.fullbright,
-		Flag = "Fullbright",
-		Callback = function(state)
-			st.fullbright = state == true
-			_G.RakeFullbright = st.fullbright
-			cfgSet("fullbright", st.fullbright)
-			clientBypass.applyFullbright()
-		end,
-	})
-
-	ClientTab:CreateButton({
-		Name = "Third Person",
-		Callback = function()
-			Plrs.LocalPlayer.Character.RagdollTime.RagdollSwitch.Value = true
-			Plrs.LocalPlayer.Character.RagdollTime.RagdollSwitch.Value = false
-		end,
-	})
-
-
-
-	PlayerTab:CreateToggle({
-		Name = "Inf Stamina",
-		CurrentValue = st.infStamina,
-		Flag = "InfStamina",
-		Callback = function(state)
-			_G.InfStamina = state == true
-			st.infStamina = _G.InfStamina
-			cfgSet("infStamina", st.infStamina)
-			if st.infStamina == true then
-				applyInfTabs(true)
-				queueInfTabs(12)
-				pcall(clientBypass.applyStaminaModuleBypass)
-				pcall(clientBypass.applyStaminaSignals)
-				clientBypass.applyCH(true)
-			else
-				pcall(clientBypass.applyStaminaSignals)
-			end
-		end,
-	})
-
-	PlayerTab:CreateToggle({
-		Name = "Inf Night Vision",
-		CurrentValue = st.infNight,
-		Flag = "InfNightVision",
-		Callback = function(state)
-			_G.InfNightVision = state == true
-			st.infNight = _G.InfNightVision
-			cfgSet("infNight", st.infNight)
-			if st.infNight == true then
-				applyInfTabs(true)
-				queueInfTabs(12)
-				clientBypass.applyStaminaModuleBypass()
-				clientBypass.applyCH(true)
-			end
-		end,
-	})
-
-	local RakeKillauraToggle = ExploitsTab:CreateToggle({
-		Name = "Rake Killaura",
-		CurrentValue = st.rakeAura,
-		Flag = "RakeAura",
-		Callback = function(state)
-			_G.RakeKillAura = state == true
-			st.rakeAura = _G.RakeKillAura
-			cfgSet("rakeAura", st.rakeAura)
-			Obsidian:Notify({
-				Title = "Rake Killaura",
-				Content = "Rake Killaura : "..tostring(_G.RakeKillAura),
-				Duration = 1,
-				Image = 4483362458,
-			})
-		end,
-	})
-
-	ExploitsTab:CreateSlider({
-		Name = "Killaura Range",
-		Range = {6, 30},
-		Increment = 1,
-		CurrentValue = st.rakeAuraRange,
-		Flag = "RakeAuraRange",
-		Callback = function(v)
-			st.rakeAuraRange = math.clamp(tonumber(v) or 12, 6, 30)
-			_G.RakeAuraRange = st.rakeAuraRange
-			cfgSet("rakeAuraRange", st.rakeAuraRange)
-		end,
-	})
-
-	ExploitsTab:CreateSlider({
-		Name = "Killaura Delay",
-		Range = {0.05, 0.6},
-		Increment = 0.01,
-		CurrentValue = st.rakeAuraDelay,
-		Flag = "RakeAuraDelay",
-		Callback = function(v)
-			st.rakeAuraDelay = math.clamp(tonumber(v) or 0.12, 0.05, 0.6)
-			_G.RakeAuraDelay = st.rakeAuraDelay
-			cfgSet("rakeAuraDelay", st.rakeAuraDelay)
-		end,
-	})
-
-	ExploitsTab:CreateToggle({
-		Name = "Killaura Auto Equip",
-		CurrentValue = st.rakeAuraAutoEquip,
-		Flag = "RakeAuraAutoEquip",
-		Callback = function(state)
-			st.rakeAuraAutoEquip = state == true
-			_G.RakeAuraAutoEquip = st.rakeAuraAutoEquip
-			cfgSet("rakeAuraAutoEquip", st.rakeAuraAutoEquip)
-		end,
-	})
-
-	local auraT = 0
-	local aura = {
-		rk = nil,
-		rr = nil,
-		rh = nil,
-		stick = nil,
-		ev = nil,
-		hp = nil,
-		bp = nil,
-	}
-
-	local function auraClearRake()
-		aura.rk = nil
-		aura.rr = nil
-		aura.rh = nil
-	end
-
-	local function auraClearStick()
-		aura.stick = nil
-		aura.ev = nil
-		aura.hp = nil
-	end
-
-	local function auraIsStick(v)
-		if not (v and v:IsA("Tool")) then
-			return false
-		end
-		local n = string.lower(v.Name)
-		return n == "stunstick" or (string.find(n, "stun", 1, true) and string.find(n, "stick", 1, true)) ~= nil
-	end
-
-	local function auraGetRake()
-		local rk = aura.rk
-		if not (rk and rk.Parent) then
-			rk = ffc(Ws, "Rake")
-			aura.rk = rk
-			aura.rr = nil
-			aura.rh = nil
-		end
-		if not rk then
-			return nil
-		end
-		local rh = aura.rh
-		if not (rh and rh.Parent) then
-			rh = ffc(rk, "Monster") or ffca(rk, "Humanoid")
-			aura.rh = rh
-		end
-		if rh and rh.Health and rh.Health <= 0 then
-			return nil
-		end
-		local rr = aura.rr
-		if not (rr and rr.Parent) then
-			rr = ffc(rk, "HumanoidRootPart") or ffcr(rk, "HumanoidRootPart")
-			aura.rr = rr
-		end
-		if not rr then
-			return nil
-		end
-		return rk, rr, rh
-	end
-
-	local function auraGetPart(rk, rr, pos)
-		local best = rr
-		local bd = rr and (rr.Position - pos).Magnitude or math.huge
-		local names = { "Head", "Torso", "UpperTorso", "LowerTorso", "HumanoidRootPart" }
-		for i = 1, #names do
-			local v = ffc(rk, names[i])
-			if v and v:IsA("BasePart") then
-				local d = (v.Position - pos).Magnitude
-				if d < bd then
-					best = v
-					bd = d
-				end
-			end
-		end
-		return best
-	end
-
-	local function auraGetStick()
-		local ch = getChar()
-		if not ch then
-			return nil
-		end
-		local s = aura.stick
-		if not (s and s.Parent) then
-			s = nil
-			for _, v in kids(ch) do
-				if auraIsStick(v) then
-					s = v
+local function dpiNum(v)
+	if type(v) == "table" then
+		local tv = v[1] or v.Value or v.Option
+		if tv == nil then
+			for k, on in next, v do
+				if on then
+					tv = k
 					break
 				end
 			end
-			if not s then
-				local bp = aura.bp
-				if not (bp and bp.Parent) then
-					local lp = Plrs.LocalPlayer
-					bp = lp and ffc(lp, "Backpack") or nil
-					aura.bp = bp
-				end
-				if bp then
-					for _, v in kids(bp) do
-						if auraIsStick(v) then
-							s = v
-							break
-						end
-					end
-				end
-				if s and _G.RakeAuraAutoEquip == true then
-					local hum = getHum()
-					if hum then
-						pcall(function()
-							hum:EquipTool(s)
-						end)
-					end
-					return nil
-				end
-			end
-			aura.stick = s
-			aura.ev = nil
-			aura.hp = nil
 		end
-		if not (s and s.Parent == ch) then
-			if s and _G.RakeAuraAutoEquip == true then
-				local hum = getHum()
-				if hum then
-					pcall(function()
-						hum:EquipTool(s)
-					end)
-				end
-				auraClearStick()
-			end
-			return nil
-		end
-		local ev = aura.ev
-		if not (ev and ev.Parent) then
-			ev = ffc(s, "Event") or ffcr(s, "Event")
-			aura.ev = ev
-		end
-		local hp = aura.hp
-		if not (hp and hp.Parent) then
-			hp = ffc(s, "HitPart") or ffcr(s, "HitPart")
-			aura.hp = hp
-		end
-		return s, ev, hp
+		v = tv
 	end
 
-	local function auraHasPower()
-		local p = ffc(Rep, "StationPower")
-		if p and p.Value ~= true then
-			return false
-		end
-		return true
-	end
+	local s = tostring(v or "")
+	s = s:gsub("%%", "")
+	s = s:match("[-%d%.]+") or ""
+	return math.clamp(tonumber(s) or 100, 50, 200)
+end
 
-	local function auraHasStamina()
-		if st.infStamina == true or _G.InfStamina == true then
-			return true
+local function dpiOpt(v)
+	local n = dpiNum(v)
+	local best = 100
+	local dist = math.huge
+	for _, x in dpiNums do
+		local d = math.abs(n - x)
+		if d < dist then
+			dist = d
+			best = x
 		end
-		local g = ffc(Rep, "GSTMNA")
-		if not g then
-			return true
-		end
-		local ok, val = pcall(function()
-			return g:Invoke()
+	end
+	return tostring(best) .. "%"
+end
+
+ObsidianSettingsTab:CreateDropdown({
+	Name = "DPI Scale",
+	Values = dpiVals,
+	CurrentOption = dpiOpt(st.uiDpi),
+	Flag = "Obsidian_DpiScale",
+	Callback = function(v)
+		local n = dpiNum(v)
+		st.uiDpi = n
+		cfgSet("uiDpi", n)
+		pcall(function()
+			Library:SetDPIScale(n)
 		end)
-		return not ok or not val or val >= 12
-	end
+	end,
+})
 
-	local function auraTakeStamina()
-		if st.infStamina == true or _G.InfStamina == true then
-			return
-		end
-		local tks = ffc(Rep, "TKSMNA")
-		if tks then
-			pcall(function()
-				tks:Fire(12)
-			end)
-		end
-	end
+ObsidianSettingsTab:CreateSlider({
+	Name = "Corner Radius",
+	Range = {0, 20},
+	Increment = 1,
+	CurrentValue = st.uiCorner,
+	Flag = "Obsidian_CornerRadius",
+	Callback = function(v)
+		st.uiCorner = math.clamp(tonumber(v) or 4, 0, 20)
+		cfgSet("uiCorner", st.uiCorner)
+		pcall(function()
+			local w = rawWin()
+			if w and w.SetCornerRadius then
+				w:SetCornerRadius(st.uiCorner)
+			end
+		end)
+	end,
+})
 
-	local function auraPrepHitpart(hp)
-		if not hp then
-			return
+SettingsTab:CreateLabel("Config Saving : " .. (fileApi and "Enabled" or "Unavailable"))
+
+SettingsTab:CreateButton({
+	Name = "Save Settings Now",
+	Callback = function()
+		local ok = saveNow()
+		pcall(function()
+			Obsidian:Notify({
+				Title = "Settings",
+				Content = ok and "Saved settings." or "Executor file API is missing, settings cannot be saved.",
+				Duration = 3,
+				Image = 4483362458,
+			})
+		end)
+	end,
+})
+
+SettingsTab:CreateButton({
+	Name = "Reset Saved Settings",
+	Callback = function()
+		saved = {}
+		for k in st do
+			st[k] = nil
 		end
 		pcall(function()
-			hp.CanTouch = true
-			hp.CanQuery = true
+			if type(delfile) == "function" and (not hasFile or isfile(cfgFile)) then
+				delfile(cfgFile)
+			end
 		end)
-	end
-
-	local function auraSwing(ev, hit)
-		if not (ev and hit) then
-			return
-		end
 		pcall(function()
-			ev:FireServer("S")
+			Obsidian:Notify({
+				Title = "Settings",
+				Content = "Reset saved settings. Reload the script to apply defaults.",
+				Duration = 3,
+				Image = 4483362458,
+			})
 		end)
-		auraTakeStamina()
-		pcall(function()
-			ev:FireServer("H", hit)
-		end)
-	end
+	end,
+})
 
-	bind(Ws.ChildAdded, function(obj)
-		if obj and obj.Name == "Rake" then
-			auraClearRake()
-			aura.rk = obj
-		end
-	end)
+SettingsTab:CreateDivider()
 
-	bind(Ws.ChildRemoved, function(obj)
-		if obj == aura.rk or obj.Name == "Rake" then
-			auraClearRake()
-		end
-	end)
-
-	bind(Plrs.LocalPlayer.CharacterAdded, function()
-		auraClearStick()
-	end)
-
-	bind(Run.Heartbeat, function(dt)
-		if AllowRunService ~= true or _G.RakeKillAura ~= true then
-			auraT = 0
-			return
-		end
-		auraT += dt
-		pcall(function()
-			local root = GET_HRP()
-			if not root then
-				return
-			end
-			local rk, rr = auraGetRake()
-			if not (rk and rr) then
-				return
-			end
-			local range = math.clamp(tonumber(_G.RakeAuraRange) or 12, 6, 30)
-			if (rr.Position - root.Position).Magnitude > range then
-				return
-			end
-			local stick, ev, hp = auraGetStick()
-			if not (stick and ev) then
-				return
-			end
-			local hit = auraGetPart(rk, rr, root.Position)
-			if not hit or (hit.Position - root.Position).Magnitude > range then
-				return
-			end
-			auraPrepHitpart(hp)
-			local delay = math.clamp(tonumber(_G.RakeAuraDelay) or 0.12, 0.05, 0.6)
-			if auraT >= delay and auraHasPower() and auraHasStamina() then
-				auraT = 0
-				auraSwing(ev, hit)
-			end
-		end)
-	end)
-
-
-
-	-- rake killaura bind
-
-	ExploitsTab:CreateKeybind({
-		Name = "Toggle Killaura",
-		CurrentKeybind = "R",
-		HoldToInteract = false,
-		Flag = "KillAuraKeybind",
-		Callback = function(state)
-			if _G.RakeKillAura == true then
-				RakeKillauraToggle:Set(false)
-			elseif _G.RakeKillAura == false then
-				RakeKillauraToggle:Set(true)
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Rake Chams",
-		CurrentValue = st.rakeChams,
-		Flag = "RakeChams",
-		Callback = function(state)
-			_G.RakeChams = state == true
-			st.rakeChams = _G.RakeChams
-			cfgSet("rakeChams", st.rakeChams)
-			if not state and cleanupEsp then
-				cleanupEsp("rake")
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Rake Info Bubble",
-		CurrentValue = st.infoBubble,
-		Flag = "RakeInfoBubble",
-		Callback = function(state)
-			st.infoBubble = state == true
-			cfgSet("infoBubble", st.infoBubble)
-			setBubbleVisible(st.infoBubble)
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Player ESP",
-		CurrentValue = st.playerEsp,
-		Flag = "PlrEsp",
-		Callback = function(state)
-			_G.PlayerESP = state == true
-			st.playerEsp = _G.PlayerESP
-			cfgSet("playerEsp", st.playerEsp)
-			if not state and cleanupEsp then
-				cleanupEsp("players")
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Show Distance Travelled",
-		CurrentValue = st.showDist,
-		Flag = "ShowDistanceTravelled",
-		Callback = function(state)
-			_G.PlayerESPShowDistance = state == true
-			st.showDist = _G.PlayerESPShowDistance
-			cfgSet("showDist", st.showDist)
-		end,
-	})
-
-	ExploitsTab:CreateButton({
-		Name = "Bring Scraps",
-		Callback = function()
-			for i,v in Ws.Filter.ScrapSpawns:QueryDescendants("Instance") do
-				if v.Name:lower() == "scrap" then
-					v:PivotTo(Plrs.LocalPlayer.Character:GetPivot())
-				end
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Flare Gun ESP",
-		CurrentValue = st.flareEsp,
-		Flag = "FlareGunESP",
-		Callback = function(state)
-			_G.FlareGunESP = state == true
-			st.flareEsp = _G.FlareGunESP
-			cfgSet("flareEsp", st.flareEsp)
-			if not state and cleanupEsp then
-				cleanupEsp("flare")
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "SupplyDrop ESP",
-		CurrentValue = st.dropEsp,
-		Flag = "SupplyDropESP",
-		Callback = function(state)
-			_G.SupplyDropESP = state == true
-			st.dropEsp = _G.SupplyDropESP
-			cfgSet("dropEsp", st.dropEsp)
-			if not state and cleanupEsp then
-				cleanupEsp("drops")
-			end
-		end,
-	})
-
-
-
-	esp = {
-		flare = nil,
-		rake = nil,
-		drops = {},
-		locs = {},
-		players = {},
-		scraps = {},
-		scrapRoot = nil,
-		traps = {},
-	}
-
-	esp.getLocFolder = function()
-		local filter = ffc(Ws, "Filter")
-		return filter and ffc(filter, "LocationPoints") or nil
-	end
-
-	esp.locName = function(obj)
-		local n = tostring(obj and obj.Name or "Location")
-		n = n:gsub("MSG$", "")
-		n = n:gsub("_", " ")
-		n = n:gsub("(%l)(%u)", "%1 %2")
-		return n
-	end
-
-	esp.locPos = function(obj)
-		if not obj then
-			return nil
-		end
-		if obj:IsA("BasePart") then
-			return obj.Position
-		end
-		if obj:IsA("Model") then
-			local ok, cf = pcall(function()
-				return obj:GetPivot()
+SettingsTab:CreateToggle({
+	Name = "Adonis Bypass",
+	CurrentValue = st.adonisBypass,
+	Flag = "Settings_AdonisBypass",
+	Callback = function(v)
+		st.adonisBypass = v == true
+		_G.RakeAdonisBypass = st.adonisBypass
+		cfgSet("adonisBypass", st.adonisBypass)
+		if st.adonisBypass then
+			task.spawn(function()
+				runAdonisBypass(true)
 			end)
-			return ok and cf and cf.Position or nil
 		end
-		if obj:IsA("CFrameValue") then
-			return obj.Value.Position
-		end
-		if obj:IsA("Vector3Value") then
-			return obj.Value
-		end
-		return nil
-	end
+	end,
+})
 
-	clientBypass.fovUiMult = function()
-		return 1
-	end
+SettingsTab:CreateSlider({
+	Name = "ESP Text Size",
+	Range = {8, 24},
+	Increment = 1,
+	CurrentValue = st.espSize,
+	Flag = "Settings_ESPTextSize",
+	Callback = function(v)
+		st.espSize = math.clamp(tonumber(v) or 12, 8, 24)
+		cfgSet("espSize", st.espSize)
+		refreshEspStyle()
+	end,
+})
 
-	esp.drawTxt = function(txt, col)
-		if not Drawing or not Drawing.new then
-			return nil
-		end
-		local ok, d = pcall(function()
-			return Drawing.new("Text")
-		end)
-		if not ok or not d then
-			return nil
-		end
-		d.Text = txt or ""
-		d.Color = col or Color3.fromRGB(255, 255, 255)
-		d.Outline = false
-		d.Center = true
-		d.Font = 2
-		d.Size = st.espSize or 12
-		d.Visible = false
-		return d
-	end
+SettingsTab:CreateSlider({
+	Name = "ESP Scan Delay",
+	Range = {0.2, 3},
+	Increment = 0.05,
+	CurrentValue = st.espScan,
+	Flag = "Settings_ESPScanDelay",
+	Callback = function(v)
+		st.espScan = math.clamp(tonumber(v) or 0.75, 0.2, 3)
+		cfgSet("espScan", st.espScan)
+	end,
+})
 
-	esp.cham = function(par, name, fill, out, trans)
-		if not par or st.espChams ~= true then
-			return nil
-		end
-		local h = ffc(par, name)
-		if h and h:IsA("Highlight") then
-			h.Enabled = true
-			return h
-		end
-		h = Instance.new("Highlight")
-		h.Name = name
-		h.Adornee = par
-		h.FillColor = fill or Color3.fromRGB(255, 255, 255)
-		h.OutlineColor = out or Color3.fromRGB(170, 170, 170)
-		h.FillTransparency = trans or 0.3
-		h.OutlineTransparency = 0.8
-		h.Parent = par
-		return h
-	end
+SettingsTab:CreateSlider({
+	Name = "ESP Max Distance",
+	Range = {0, 5000},
+	Increment = 50,
+	CurrentValue = st.espMax,
+	Flag = "Settings_ESPMaxDistance",
+	Callback = function(v)
+		st.espMax = math.clamp(tonumber(v) or 0, 0, 5000)
+		cfgSet("espMax", st.espMax)
+	end,
+})
 
-	esp.posOf = function(obj)
-		if not obj then
-			return nil
-		end
-		if obj:IsA("BasePart") then
-			return obj.Position
-		end
-		if obj:IsA("Model") then
-			local pp = obj.PrimaryPart or ffcr(obj, "HumanoidRootPart") or ffcr(obj, "Head") or ffcr(obj, "HitBox") or ffcr(obj, "Scrap")
-			if pp and pp:IsA("BasePart") then
-				return pp.Position
-			end
-			local ok, cf = pcall(function()
-				return obj:GetPivot()
-			end)
-			if ok and cf then
-				return cf.Position
-			end
-		end
-		return nil
-	end
-
-	esp.show = function(d, pos, txt)
-		if not d or not pos then
-			if d then d.Visible = false end
-			return
-		end
-		local cam = workspace.CurrentCamera
-		if not cam then
-			d.Visible = false
-			return
-		end
-		local me = GET_HRP()
-		local dist
-		if me then
-			dist = (pos - me.Position).Magnitude
-			if (tonumber(st.espMax) or 0) > 0 and dist > st.espMax then
-				d.Visible = false
-				return
-			end
-		end
-		local p, on = cam:WorldToViewportPoint(pos)
-		if on then
-			local text = txt or d.Text
-			if st.espDist == true and dist then
-				text = tostring(text) .. " [" .. tostring(math.floor(dist + 0.5)) .. "m]"
-			end
-			if d.Text ~= text then
-				d.Text = text
-			end
-			local size = st.espSize or d.Size
-			if d.Size ~= size then
-				d.Size = size
-			end
-			if d.Outline ~= false then
-				d.Outline = false
-			end
-			local pos2 = Vector2.new(p.X, p.Y)
-			if d.Position ~= pos2 then
-				d.Position = pos2
-			end
-			if d.Visible ~= true then
-				d.Visible = true
-			end
-		else
-			if d.Visible ~= false then
-				d.Visible = false
-			end
-		end
-	end
-
-	esp.itemVal = function(root, name)
-		local cur = root
-		for _ = 1, 5 do
-			if not cur then
-				break
-			end
-			local v = ffc(cur, name)
-			if v then
-				return valOf(v, "?")
-			end
-			local ok, attr = pcall(function()
-				return cur:GetAttribute(name)
-			end)
-			if ok and attr ~= nil then
-				return attr
-			end
-			cur = cur.Parent
-		end
-		return "?"
-	end
-
-	esp.scrapTxt = function(part)
-		local root = part and part.Parent
-		local pts = esp.itemVal(root, "PointsVal")
-		local lvl = esp.itemVal(root, "LevelVal")
-		return "Scrap, Points "..tostring(pts)..", Level "..tostring(lvl)
-	end
-
-	esp.clearOne = function(tab, key)
-		local it = tab[key]
-		if not it then
-			return
-		end
-		safeDrawRemove(it.d)
-		safeDestroy(it.h)
-		tab[key] = nil
-	end
-
-	cleanupEsp = function(kind)
-		if not kind or kind == "flare" then
-			if esp.flare then
-				safeDrawRemove(esp.flare.d)
-				safeDestroy(esp.flare.h)
-				esp.flare = nil
-			end
-		end
-		if not kind or kind == "rake" then
-			if esp.rake then
-				safeDrawRemove(esp.rake.d)
-				safeDestroy(esp.rake.h)
-				esp.rake = nil
-			end
-		end
-		if not kind or kind == "players" then
-			for k in esp.players do
-				esp.clearOne(esp.players, k)
-			end
-		end
-		if not kind or kind == "drops" then
-			for k in esp.drops do
-				esp.clearOne(esp.drops, k)
-			end
-		end
-		if not kind or kind == "locs" then
-			for k, d in esp.locs do
-				safeDrawRemove(d)
-				esp.locs[k] = nil
-			end
-		end
-		if not kind or kind == "scraps" then
-			for k in esp.scraps do
-				esp.clearOne(esp.scraps, k)
-			end
-		end
-		if not kind or kind == "traps" then
-			for k in esp.traps do
-				esp.clearOne(esp.traps, k)
-			end
-		end
-	end
-
-	ClientTab:CreateToggle({
-		Name = "Location ESP",
-		CurrentValue = st.locEsp,
-		Flag = "LocationESP",
-		Callback = function(state)
-			_G.LocationESP = state == true
-			st.locEsp = _G.LocationESP
-			cfgSet("locEsp", st.locEsp)
-			if not state and cleanupEsp then
-				cleanupEsp("locs")
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Scrap ESP",
-		CurrentValue = st.scrapEsp,
-		Flag = "ScrapESP",
-		Callback = function(state)
-			_G.ScrapESP = state == true
-			st.scrapEsp = _G.ScrapESP
-			cfgSet("scrapEsp", st.scrapEsp)
-			if state then
-				esp.scrapRoot = nil
-			elseif cleanupEsp then
-				cleanupEsp("scraps")
-			end
-		end,
-	})
-
-	ClientTab:CreateToggle({
-		Name = "Rake Trap ESP",
-		CurrentValue = st.trapEsp,
-		Flag = "RakeTrapESP",
-		Callback = function(state)
-			_G.RakeTrapESP = state == true
-			st.trapEsp = _G.RakeTrapESP
-			cfgSet("trapEsp", st.trapEsp)
-			if not state and cleanupEsp then
-				cleanupEsp("traps")
-			end
-		end,
-	})
-
-	esp.scanT = 1
-	esp.updT = 0
-
-	esp.espAny = function()
-		return _G.FlareGunESP == true or _G.RakeChams == true or _G.PlayerESP == true or _G.SupplyDropESP == true or _G.LocationESP == true or _G.ScrapESP == true or _G.RakeTrapESP == true
-	end
-
-	esp.scanEsp = function()
-		if _G.FlareGunESP == true then
-			local fl = ffcr(Ws, "FlareGunPickUp")
-			if fl then
-				if not esp.flare or esp.flare.o ~= fl then
-					cleanupEsp("flare")
-					esp.flare = {
-						o = fl,
-						d = esp.drawTxt("Flare Gun", Color3.fromRGB(0, 225, 255)),
-						h = esp.cham(fl, "FlareGunChams", Color3.fromRGB(255, 0, 0), Color3.fromRGB(170, 170, 170), 0.3),
-					}
-				end
-			else
-				cleanupEsp("flare")
-			end
-		else
+SettingsTab:CreateToggle({
+	Name = "ESP Highlights",
+	CurrentValue = st.espChams,
+	Flag = "Settings_ESPHighlights",
+	Callback = function(v)
+		st.espChams = v == true
+		cfgSet("espChams", st.espChams)
+		if cleanupEsp then
 			cleanupEsp("flare")
-		end
-
-		if _G.RakeChams == true then
-			local rk = ffcr(Ws, "Rake")
-			if rk then
-				if not esp.rake or esp.rake.o ~= rk then
-					cleanupEsp("rake")
-					esp.rake = {
-						o = rk,
-						d = esp.drawTxt("Rake", Color3.fromRGB(255, 0, 0)),
-						h = esp.cham(rk, "RakeChams", Color3.fromRGB(170, 0, 0), Color3.fromRGB(255, 255, 255), 0.3),
-					}
-				end
-			else
-				cleanupEsp("rake")
-			end
-		else
 			cleanupEsp("rake")
-		end
-
-		if _G.PlayerESP == true then
-			for _, p in Plrs:GetPlayers() do
-				if p ~= Plrs.LocalPlayer and p.Character then
-					local ch = p.Character
-					if not esp.players[p] or esp.players[p].o ~= ch then
-						esp.clearOne(esp.players, p)
-						esp.players[p] = {
-							o = ch,
-							d = esp.drawTxt(p.Name, Color3.fromRGB(0, 255, 34)),
-							h = esp.cham(ch, "PlayerChams", Color3.fromRGB(0, 11, 170), Color3.fromRGB(170, 170, 170), 0.3),
-						}
-					end
-				end
-			end
-			for p, it in esp.players do
-				if not p.Parent or not p.Character or p.Character ~= it.o then
-					esp.clearOne(esp.players, p)
-				end
-			end
-		else
 			cleanupEsp("players")
-		end
-
-		if _G.SupplyDropESP == true then
-			eachDrop(function(box)
-				if not esp.drops[box] then
-					esp.drops[box] = {
-						o = box,
-						d = esp.drawTxt("Supply Drop", Color3.fromRGB(251, 255, 0)),
-						h = nil,
-					}
-				end
-			end)
-			for box in esp.drops do
-				if not box.Parent then
-					esp.clearOne(esp.drops, box)
-				end
-			end
-		else
-			cleanupEsp("drops")
-		end
-
-		if _G.ScrapESP == true then
-			local filter = ffc(Ws, "Filter")
-			local root = filter and ffc(filter, "ScrapSpawns")
-			if root ~= esp.scrapRoot then
-				esp.scrapRoot = root
-				cleanupEsp("scraps")
-				for _, v in desc(root) do
-					if v.Name == "Scrap" and v:IsA("BasePart") and not esp.scraps[v] then
-						esp.scraps[v] = {
-							o = v,
-							d = esp.drawTxt(esp.scrapTxt(v), Color3.fromRGB(77, 35, 1)),
-							h = esp.cham(v, "ScrapChams", Color3.fromRGB(77, 35, 1), Color3.fromRGB(170, 170, 170), 0),
-						}
-					end
-				end
-			end
-			for v in esp.scraps do
-				if not v.Parent then
-					esp.clearOne(esp.scraps, v)
-				end
-			end
-		else
-			esp.scrapRoot = nil
 			cleanupEsp("scraps")
-		end
-
-		if _G.RakeTrapESP == true then
-			local debris = ffc(Ws, "Debris")
-			local root = debris and ffc(debris, "Traps")
-			if root then
-				for _, v in kids(root) do
-					if v.Name == "RakeTrapModel" and v:IsA("Model") and not esp.traps[v] then
-						esp.traps[v] = {
-							o = v,
-							d = esp.drawTxt("Rake Trap", Color3.fromRGB(255, 85, 0)),
-							h = esp.cham(v, "RakeTrapChams", Color3.fromRGB(255, 85, 0), Color3.fromRGB(255, 255, 255), 0.3),
-						}
-					end
-				end
-			end
-			for v in esp.traps do
-				if not v.Parent or v.Parent ~= root then
-					esp.clearOne(esp.traps, v)
-				end
-			end
-		else
 			cleanupEsp("traps")
 		end
-	end
+	end,
+})
 
-	bind(Ws.DescendantAdded, function(obj)
-		if _G.ScrapESP == true and obj.Name == "Scrap" and obj:IsA("BasePart") then
-			local filter = ffc(Ws, "Filter")
-			local root = filter and ffc(filter, "ScrapSpawns")
-			if root and obj:IsDescendantOf(root) and not esp.scraps[obj] then
-				esp.scrapRoot = root
-				esp.scraps[obj] = {
-					o = obj,
-					d = esp.drawTxt(esp.scrapTxt(obj), Color3.fromRGB(77, 35, 1)),
-					h = esp.cham(obj, "ScrapChams", Color3.fromRGB(77, 35, 1), Color3.fromRGB(170, 170, 170), 0),
-				}
-			end
-		end
-	end)
+SettingsTab:CreateToggle({
+	Name = "ESP Show Distance",
+	CurrentValue = st.espDist,
+	Flag = "Settings_ESPShowDistance",
+	Callback = function(v)
+		st.espDist = v == true
+		cfgSet("espDist", st.espDist)
+	end,
+})
 
-	bind(Run.Heartbeat, function(dt)
-		if AllowRunService ~= true then
-			cleanupEsp()
+SettingsTab:CreateDivider()
+
+SettingsTab:CreateButton({
+	Name = "Unload Script",
+	Callback = function()
+		if typeof(DestroyUI) == "function" then
+			DestroyUI()
 			return
 		end
-
-		if not esp.espAny() then
-			return
-		end
-
-		esp.scanT += dt
-		esp.updT += dt
-
-		if esp.scanT >= (tonumber(st.espScan) or 0.75) then
-			esp.scanT = 0
-			esp.scanEsp()
-		end
-
-		if esp.updT < 0.08 then
-			return
-		end
-		esp.updT = 0
-
-		if _G.LocationESP == true then
-			local root = esp.getLocFolder()
-			local alive = {}
-			if root then
-				for _, obj in kids(root) do
-					local pos = esp.locPos(obj)
-					if pos then
-						alive[obj] = true
-						local name = esp.locName(obj)
-						local d = esp.locs[obj]
-						if not d then
-							d = esp.drawTxt("[LOCATION] "..name, Color3.fromRGB(255, 136, 0))
-							esp.locs[obj] = d
-						end
-						esp.show(d, pos, "[LOCATION] "..name)
-					end
-				end
-			end
-			for obj, d in esp.locs do
-				if not alive[obj] or not obj.Parent then
-					safeDrawRemove(d)
-					esp.locs[obj] = nil
-				end
-			end
-		else
-			cleanupEsp("locs")
-		end
-
-		if esp.flare then
-			local fl = esp.flare.o
-			local part = fl and (ffcr(fl, "FlareGun") or fl)
-			esp.show(esp.flare.d, _G.FlareGunESP and esp.posOf(part), "Flare Gun")
-		end
-
-		if esp.rake then
-			local rk = esp.rake.o
-			local mons = rk and ffcr(rk, "Monster")
-			local hp = valOf(mons and ffcr(mons, "Health"), nil)
-			if hp == nil and rk then
-				local hum = ffca(rk, "Humanoid")
-				hp = hum and hum.Health or hp
-			end
-			esp.show(esp.rake.d, _G.RakeChams and esp.posOf(ffcr(rk, "Head") or rk), "Rake, Health : "..tostring(hp or "?"))
-		end
-
-		for p, it in esp.players do
-			local ch = it.o
-			local head = ch and ffcr(ch, "Head")
-			local txt = p.Name
-			if _G.PlayerESPShowDistance == true then
-				txt = p.Name.." [Distance Travelled : "..tostring(valOf(ffc(p, "DistanceTravelled"), "?")).."]"
-			end
-			esp.show(it.d, _G.PlayerESP and esp.posOf(head or ch), txt)
-		end
-
-		for box, it in esp.drops do
-			esp.show(it.d, _G.SupplyDropESP and esp.posOf(ffcr(box, "HitBox") or box), "Supply Drop")
-		end
-
-		for v, it in esp.scraps do
-			esp.show(it.d, _G.ScrapESP and esp.posOf(v), esp.scrapTxt(v))
-		end
-
-		for v, it in esp.traps do
-			esp.show(it.d, _G.RakeTrapESP and esp.posOf(v), "Rake Trap")
-		end
-	end)
-
-	clientBypass.noFall = {
-		haystackSize = Vector3.new(100000, 100000, 100000),
-		applyToken = 0,
-		env = _G,
-	}
-
-	clientBypass.noFall.getHaystack = function()
-		local ws = game:GetService("Workspace")
-		local filter = ffc(ws, "Filter")
-		return filter and ffc(filter, "Haystack") or nil
-	end
-
-	clientBypass.noFall.applyHaystack = function(enabled)
-		clientBypass.noFall.applyToken = clientBypass.noFall.applyToken + 1
-		local token = clientBypass.noFall.applyToken
-
-		task.spawn(function()
-			for _ = 1, 40 do
-				if token ~= clientBypass.noFall.applyToken then
-					return
-				end
-
-				local haystack = clientBypass.noFall.getHaystack()
-				if haystack then
-					pcall(function()
-						if clientBypass.noFall.env.__rakeHaystackOriginalSize == nil and haystack.Size ~= clientBypass.noFall.haystackSize then
-							clientBypass.noFall.env.__rakeHaystackOriginalSize = haystack.Size
-						end
-
-						if enabled == true then
-							haystack.Size = clientBypass.noFall.haystackSize
-						elseif clientBypass.noFall.env.__rakeHaystackOriginalSize then
-							haystack.Size = clientBypass.noFall.env.__rakeHaystackOriginalSize
-						end
-					end)
-					return
-				end
-
-				task.wait(0.25)
-			end
-		end)
-	end
-
-	PlayerTab:CreateToggle({
-		Name = "No Fall Damage",
-		CurrentValue = st.noFall,
-		Flag = "NoFallDamage",
-		Callback = function(state)
-			_G.NoFallDMG = state == true
-			st.noFall = _G.NoFallDMG
-			cfgSet("noFall", st.noFall)
-			clientBypass.noFall.applyHaystack(_G.NoFallDMG)
-		end,
-	})
-
-	PlayerTab:CreateToggle({
-		Name = "Safe Position Recovery",
-		CurrentValue = st.safeRecover,
-		Flag = "SafePositionRecovery",
-		Callback = function(state)
-			st.safeRecover = state == true
-			_G.RakeSafeRecover = st.safeRecover
-			cfgSet("safeRecover", st.safeRecover)
-			clientBypass.applySafeRecover()
-		end,
-	})
-
-	PlayerTab:CreateToggle({
-		Name = "No Jump Cooldown",
-		CurrentValue = st.noJumpCooldown,
-		Flag = "NoJumpCooldown",
-		Callback = function(state)
-			st.noJumpCooldown = state == true
-			_G.RakeNoJumpCooldown = st.noJumpCooldown
-			cfgSet("noJumpCooldown", st.noJumpCooldown)
-			clientBypass.applyCH(true)
-		end,
-	})
-
-	clientBypass.noFall.applyHaystack(st.noFall)
-
-
-	clientBypass.lastCam = nil
-	clientBypass.lastFov = nil
-	clientBypass.fovConns = {}
-
-	clientBypass.fovUiMult = function()
-		if st.fovUiFix ~= true or st.fovOn ~= true then
-			return 1
-		end
-		local fov = math.clamp(tonumber(st.fov) or 70, 1, 120)
-		if fov <= 70 then
-			return 1
-		end
-		return math.clamp(math.tan(math.rad(fov) * 0.5) / math.tan(math.rad(70) * 0.5), 1, 2.75)
-	end
-
-	clientBypass.mulDim2 = function(v, m)
-		return UDim2.new(v.X.Scale * m, math.floor(v.X.Offset * m + 0.5), v.Y.Scale * m, math.floor(v.Y.Offset * m + 0.5))
-	end
-
-	clientBypass.isTextGui = function(obj)
-		return obj and (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox"))
-	end
-
-	clientBypass.patchFovUiText = function(obj, rec, m)
-		if not rec.text then
-			rec.text = setmetatable({}, { __mode = "k" })
-		end
-		for _, ui in desc(obj) do
-			if clientBypass.isTextGui(ui) then
-				local tr = rec.text[ui]
-				if not tr then
-					tr = { size = ui.TextSize, scaled = ui.TextScaled }
-					rec.text[ui] = tr
-				end
-				pcall(function()
-					if tr.scaled == true then
-						ui.TextScaled = true
-					else
-						ui.TextScaled = false
-						ui.TextSize = math.clamp(math.floor((tonumber(tr.size) or ui.TextSize or 14) * m + 0.5), 8, 72)
-					end
-				end)
-			end
-		end
-	end
-
-	function clientBypass.patchFovUi(obj)
-		if not obj or not obj.Parent or not obj:IsA("BillboardGui") then
-			return false
-		end
-		local rec = clientBypass.fovUiCache[obj]
-		if not rec then
-			rec = { size = obj.Size }
-			clientBypass.fovUiCache[obj] = rec
-		end
-		local m = clientBypass.fovUiMult()
-		pcall(function()
-			obj.Size = clientBypass.mulDim2(rec.size, m)
-		end)
-		clientBypass.patchFovUiText(obj, rec, m)
-		return true
-	end
-
-	function clientBypass.applyFovUiFix(scan)
-		if st.fovUiFix ~= true then
-			return 0
-		end
-		local n = 0
-		for obj in clientBypass.fovUiCache do
-			if obj and obj.Parent then
-				if clientBypass.patchFovUi(obj) then
-					n += 1
-				end
-			else
-				clientBypass.fovUiCache[obj] = nil
-			end
-		end
-		if scan == true and clientBypass.fovUiScanned ~= true then
-			clientBypass.fovUiScanned = true
-			for _, root in { Ws, clientBypass.getPlayerGui() } do
-				for _, obj in desc(root) do
-					if obj:IsA("BillboardGui") and clientBypass.patchFovUi(obj) then
-						n += 1
-					end
-				end
-			end
-		end
-		return n
-	end
-
-	function clientBypass.restoreFovUiFix()
-		for obj, rec in clientBypass.fovUiCache do
-			if obj and obj.Parent and rec and rec.size then
-				pcall(function()
-					obj.Size = rec.size
-				end)
-			end
-			if rec and rec.text then
-				for ui, tr in rec.text do
-					if ui and ui.Parent and tr then
-						pcall(function()
-							ui.TextScaled = tr.scaled == true
-							ui.TextSize = tr.size or ui.TextSize
-						end)
-					end
-				end
-			end
-		end
-		clientBypass.fovUiCache = setmetatable({}, { __mode = "k" })
-		clientBypass.fovUiScanned = false
-	end
-
-	clientBypass.wipeFovConns = function()
-		for i = #clientBypass.fovConns, 1, -1 do
-			local c = clientBypass.fovConns[i]
-			if c then
-				pcall(function()
-					c:Disconnect()
-				end)
-			end
-			clientBypass.fovConns[i] = nil
-		end
-	end
-
-	clientBypass.applyFov = function(force)
-		if not AllowRunService or st.fovOn ~= true then
-			return
-		end
-		local cam = Ws.CurrentCamera or workspace.CurrentCamera
-		if not cam then
-			return
-		end
-		local num = math.clamp(tonumber(st.fov) or 70, 1, 120)
-		if force or clientBypass.lastCam ~= cam or clientBypass.lastFov ~= num or cam.FieldOfView ~= num then
-			clientBypass.lastCam = cam
-			clientBypass.lastFov = num
-			pcall(function()
-				cam.FieldOfView = num
-			end)
-			pcall(clientBypass.applyFovUiFix, true)
-		end
-	end
-
-	clientBypass.bindFovCam = function(cam)
-		clientBypass.wipeFovConns()
-		if not cam then
-			return
-		end
-		clientBypass.lastCam = nil
-		local ok, c = pcall(function()
-			return cam:GetPropertyChangedSignal("FieldOfView"):Connect(function()
-				if AllowRunService == true and st.fovOn == true then
-					task.defer(function()
-						clientBypass.applyFov(true)
-					end)
-				end
-			end)
-		end)
-		if ok and c then
-			clientBypass.fovConns[#clientBypass.fovConns + 1] = c
-		end
-		clientBypass.applyFov(true)
-	end
-
-	clientBypass.applySpeed = function(force)
-		if not AllowRunService or st.spdOn ~= true then
-			return
-		end
-		local hum = getHum()
-		if not hum or not hum.Parent then
-			return
-		end
-		local spd = math.clamp(tonumber(st.spd) or 16, 0, 30)
-		if force or hum.WalkSpeed ~= spd then
-			pcall(function()
-				hum.WalkSpeed = spd
-			end)
-		end
-	end
-
-	clientBypass.onChar = function(ch)
-		wipeCharConns()
-		curChar = ch
-		curHum = nil
-		curHrp = nil
-		clientBypass.lastSafe = nil
-		if not ch then
-			return
-		end
-		if st.infStamina == true or st.infNight == true then
-			queueInfTabs(14)
-		end
-		task.spawn(function()
-			local hum = ffca(ch, "Humanoid") or ch:WaitForChild("Humanoid", 10)
-			if hum then
-				curHum = hum
-				clientBypass.applySpeed(true)
-				pcall(clientBypass.applyCharBypasses)
-				pcall(clientBypass.applySafeRecover)
-				if st.infStamina == true or st.infNight == true then
-					applyInfTabs(true)
-				end
-				bindChar(hum:GetPropertyChangedSignal("WalkSpeed"), function()
-					clientBypass.applySpeed(true)
-				end)
-			end
-		end)
-	end
-
-	clientBypass.lp = Plrs.LocalPlayer
-	if clientBypass.lp then
-		if clientBypass.lp.Character then
-			task.defer(clientBypass.onChar, clientBypass.lp.Character)
-		end
-		bind(clientBypass.lp.CharacterAdded, clientBypass.onChar)
-	end
-
-	PlayerTab:CreateSlider({
-		Name = "Field Of View",
-		Range = {1, 120},
-		Increment = 1,
-		CurrentValue = st.fov,
-		Flag = "FOV",
-		Callback = function(state)
-			st.fov = math.clamp(tonumber(state) or st.fov, 1, 120)
-			_G.FieldOfView = st.fov
-			cfgSet("fov", st.fov)
-			clientBypass.applyFov(true)
-			clientBypass.applyFovUiFix(true)
-		end,
-	})
-
-	PlayerTab:CreateToggle({
-		Name = "Toggle FOV",
-		CurrentValue = st.fovOn,
-		Flag = "tglFOV",
-		Callback = function(state)
-			st.fovOn = state == true
-			_G.enableFOV = st.fovOn
-			cfgSet("fovOn", st.fovOn)
-			clientBypass.lastCam = nil
-			clientBypass.bindFovCam(Ws.CurrentCamera or workspace.CurrentCamera)
-			clientBypass.applyFov(true)
-			if st.fovOn ~= true then
-				clientBypass.restoreFovUiFix()
-			end
-		end,
-	})
-
-	PlayerTab:CreateToggle({
-		Name = "Fix High FOV UI Scale",
-		CurrentValue = st.fovUiFix,
-		Flag = "FixHighFovUiScale",
-		Callback = function(state)
-			st.fovUiFix = state == true
-			_G.RakeFovUiFix = st.fovUiFix
-			cfgSet("fovUiFix", st.fovUiFix)
-			if st.fovUiFix then
-				clientBypass.applyFovUiFix(true)
-			else
-				clientBypass.restoreFovUiFix()
-			end
-		end,
-	})
-	
-	PlayerTab:CreateSlider({
-		Name = "WalkSpeed",
-		Range = {0, 30},
-		Increment = 1,
-		CurrentValue = st.spd,
-		Flag = "walkspeed",
-		Callback = function(state)
-			st.spd = math.clamp(tonumber(state) or st.spd, 0, 30)
-			_G.WalkSpeedd = st.spd
-			cfgSet("spd", st.spd)
-			clientBypass.applySpeed(true)
-		end,
-	})
-
-	PlayerTab:CreateToggle({
-		Name = "Toggle WalkSpeed",
-		CurrentValue = st.spdOn,
-		Flag = "tglSpeed",
-		Callback = function(state)
-			st.spdOn = state == true
-			_G.enableSpeed = st.spdOn
-			cfgSet("spdOn", st.spdOn)
-			clientBypass.applySpeed(true)
-		end,
-	})
-
-
-	ExploitsTab:CreateToggle({
-		Name = "Insta Open SupplyDrop",
-		CurrentValue = st.instaDrop,
-		Flag = "InstaOpenSupplyDrop",
-		Callback = function(state)
-			_G.InstaOpenSupplyDrop = state == true
-			st.instaDrop = _G.InstaOpenSupplyDrop
-			cfgSet("instaDrop", st.instaDrop)
-		end,
-	})
-
-	ExploitsTab:CreateToggle({
-		Name = "Insta Close RakeTrap",
-		CurrentValue = st.instaTrap,
-		Flag = "InstaCloseRakeTrap",
-		Callback = function(state)
-			_G.InstaCloseRakeTrap = state == true
-			st.instaTrap = _G.InstaCloseRakeTrap
-			cfgSet("instaTrap", st.instaTrap)
-		end,
-	})
-
-	ExploitsTab:CreateToggle({
-		Name = "Known Object Prompt Bypass",
-		CurrentValue = st.knownPromptBypass,
-		Flag = "KnownObjectPromptBypass",
-		Callback = function(state)
-			st.knownPromptBypass = state == true
-			_G.RakeKnownPromptBypass = st.knownPromptBypass
-			cfgSet("knownPromptBypass", st.knownPromptBypass)
-			if st.knownPromptBypass then
-				local n = clientBypass.applyKnownGamePrompts()
-				Obsidian:Notify({
-					Title = "Known Prompts",
-					Content = "Unlocked known prompts: " .. tostring(n),
-					Duration = 2,
-					Image = 4483362458,
-				})
-			end
-		end,
-	})
-
-	-- ================= 新增：自动拾取信号枪 UI 开关 =================
-	-- 注意：此开关会调用下面定义的 setFlarePickupEnabled 函数
-	local flarePickupEnabled = false
-	function setFlarePickupEnabled(enabled)
-		flarePickupEnabled = enabled == true
-		if flarePickupEnabled then
-			-- 扫描并添加到队列的逻辑在下面模块中自动处理
-			if type(scanExistingFlares) == "function" then
-				scanExistingFlares()
-			end
-		else
-			if type(flarePickup) == "table" then
-				flarePickup.queue = {}
-				flarePickup.busy = false
-			end
-		end
-	end
-
-	ExploitsTab:CreateToggle({
-		Name = "Auto Pickup Flare Gun",
-		CurrentValue = st.autoPickupFlare,
-		Flag = "AutoPickupFlare",
-		Callback = function(state)
-			st.autoPickupFlare = state == true
-			cfgSet("autoPickupFlare", st.autoPickupFlare)
-			setFlarePickupEnabled(st.autoPickupFlare)
-		end,
-	})
-	-- ================================================================
-
-	ExploitsTab:CreateToggle({
-		Name = "Prompt Bypass",
-		CurrentValue = st.promptBypass,
-		Flag = "PromptBypass",
-		Callback = function(state)
-			st.promptBypass = state == true
-			_G.RakePromptBypass = st.promptBypass
-			cfgSet("promptBypass", st.promptBypass)
-			if st.promptBypass then
-				local n = clientBypass.applyPromptBypass()
-				Obsidian:Notify({
-					Title = "Prompt Bypass",
-					Content = "Unlocked prompts: " .. tostring(n),
-					Duration = 2,
-					Image = 4483362458,
-				})
-			end
-		end,
-	})
-
-	ExploitsTab:CreateSlider({
-		Name = "Prompt Distance",
-		Range = {5, 100},
-		Increment = 1,
-		CurrentValue = st.promptDistance,
-		Flag = "PromptBypassDistance",
-		Callback = function(v)
-			st.promptDistance = math.clamp(tonumber(v) or 25, 5, 100)
-			cfgSet("promptDistance", st.promptDistance)
-			if st.promptBypass then
-				clientBypass.applyKnownPromptBypass()
-			end
-		end,
-	})
-
-
-	ExploitsTab:CreateButton({
-		Name = "Unlock Prompts Once",
-		Callback = function()
-			local old = st.promptBypass
-			st.promptBypass = true
-			local n = clientBypass.applyPromptBypass()
-			st.promptBypass = old
-			Obsidian:Notify({
-				Title = "Prompts",
-				Content = "Unlocked prompts: " .. tostring(n),
-				Duration = 2,
-				Image = 4483362458,
-			})
-		end,
-	})
-
-	ExploitsTab:CreateButton({
-		Name = "StartRemote Play",
-		Callback = function()
-			local ok, res = clientBypass.invokeStartRemote("Play")
-			if ok then
-				setScriptGlobal("IsLoading", nil)
-				setScriptGlobal("SLoaded", true)
-				clientBypass.restoreCoreGui()
-			end
-			Obsidian:Notify({
-				Title = "StartRemote",
-				Content = ok and ("Play returned: " .. tostring(res)) or "StartRemote was not available.",
-				Duration = 3,
-				Image = 4483362458,
-			})
-		end,
-	})
-
-	ExploitsTab:CreateButton({
-		Name = "StartRemote LoadData",
-		Callback = function()
-			local ok, res = clientBypass.invokeStartRemote("LoadData")
-			Obsidian:Notify({
-				Title = "StartRemote",
-				Content = ok and ("LoadData returned: " .. tostring(res)) or "StartRemote was not available.",
-				Duration = 3,
-				Image = 4483362458,
-			})
-		end,
-	})
-
-	ExploitsTab:CreateButton({
-		Name = "StartRemote JoinOld",
-		Callback = function()
-			local ok, res = clientBypass.invokeStartRemote("JoinOld")
-			Obsidian:Notify({
-				Title = "StartRemote",
-				Content = ok and ("JoinOld returned: " .. tostring(res)) or "StartRemote was not available.",
-				Duration = 3,
-				Image = 4483362458,
-			})
-		end,
-	})
-
-	clientBypass.promptT = 1
-	clientBypass.promptBypassT = 1
-	clientBypass.clientBypassT = 1
-	clientBypass.knownPromptT = 1
-	clientBypass.soundT = 1
-	clientBypass.lightT = 5
-	clientBypass.deathMsgT = 2
-	clientBypass.fastBypassT = 0
-
-	bind(Run.Heartbeat, function(dt)
-		if AllowRunService ~= true then
-			return
-		end
-		clientBypass.promptT += dt
-		if clientBypass.promptT < 0.35 then
-			return
-		end
-		clientBypass.promptT = 0
-		pcall(function()
-			fastDoorLever()
-			if _G.InstaOpenSupplyDrop == true then
-				eachDrop(fastDrop)
-			end
-			if _G.InstaCloseRakeTrap == true then
-				eachTrap(fastTrap)
-			end
-		end)
-	end)
-
-	bind(Run.Heartbeat, function(dt)
-		if AllowRunService ~= true then
-			return
-		end
-		clientBypass.promptBypassT += dt
-		clientBypass.clientBypassT += dt
-		clientBypass.soundT += dt
-		clientBypass.lightT += dt
-		clientBypass.knownPromptT += dt
-		clientBypass.deathMsgT += dt
-		clientBypass.chT += dt
-		clientBypass.stamScanT += dt
-		if (st.infStamina == true or st.infNight == true) and clientBypass.stamScanT >= 12 then
-			clientBypass.stamScanT = 0
-			pcall(clientBypass.applyStaminaModuleBypass)
-		end
-		if st.promptBypass == true and clientBypass.promptInitScan ~= true then
-			clientBypass.promptInitScan = true
-			clientBypass.promptBypassT = 0
-			pcall(clientBypass.applyPromptBypass)
-		elseif st.promptBypass ~= true then
-			clientBypass.promptInitScan = false
-		elseif clientBypass.promptBypassT >= 5 then
-			clientBypass.promptBypassT = 0
-			pcall(clientBypass.applyKnownPromptBypass)
-		end
-		if clientBypass.knownPromptT >= 1.25 then
-			clientBypass.knownPromptT = 0
-			pcall(clientBypass.applyKnownGamePrompts)
-			pcall(clientBypass.applyClientPopupBypasses)
-		end
-		if clientBypass.clientBypassT >= 0.75 then
-			clientBypass.clientBypassT = 0
-			pcall(clientBypass.applyMotionBlurBypass)
-			pcall(clientBypass.applyMenuFxBypass)
-			pcall(clientBypass.applyDeathFxBypass)
-			pcall(clientBypass.applyIntroBypass)
-			pcall(clientBypass.applyGameSettingOverrides)
-			pcall(clientBypass.applyPromptUiBypass)
-			pcall(clientBypass.applyLookFreeze)
-			pcall(clientBypass.cleanupPromptModals)
-			pcall(clientBypass.applyDeviceSpoof)
-			pcall(clientBypass.applyCharBypasses)
-			pcall(clientBypass.applySafeRecover)
-			pcall(clientBypass.applyFullbright)
-			pcall(clientBypass.applyClientPopupBypasses)
-			pcall(clientBypass.applyFovUiFix, false)
-			pcall(clientBypass.removeIntroClones)
-			pcall(clientBypass.forceCoreParts)
-			pcall(clientBypass.applyStaminaSignals)
-			if clientBypass.chBootScan ~= true then
-				clientBypass.chBootScan = true
-				pcall(clientBypass.applyCH, true)
-			else
-				pcall(clientBypass.applyCH, false)
-			end
-		end
-		if clientBypass.deathMsgT >= 2 then
-			clientBypass.deathMsgT = 0
-			pcall(clientBypass.applyDeathMessageBypass)
-		end
-		if clientBypass.lightT >= 5 then
-			clientBypass.lightT = 0
-			pcall(clientBypass.applyLightToolBypasses)
-		end
-		if clientBypass.soundT >= 2.5 then
-			clientBypass.soundT = 0
-			pcall(clientBypass.applySoundBypasses)
-		end
-	end)
-
-	bind(Run.Heartbeat, function()
-		if AllowRunService ~= true then
-			return
-		end
-		if st.fovOn == true then
-			clientBypass.applyFov(false)
-		end
-		if _G.NoFog == true then
-			setFogOff()
-		end
-		pcall(clientBypass.applySafeRecover)
-		pcall(clientBypass.applyCharBypasses)
-		pcall(clientBypass.applyFullbright)
-		pcall(clientBypass.applyCH, false)
-	end)
-
-	clientBypass.bindFovCam(Ws.CurrentCamera or workspace.CurrentCamera)
-	pcall(clientBypass.applyFovUiFix, true)
-	pcall(clientBypass.fetchRootModule)
-	pcall(clientBypass.applyStaminaModuleBypass)
-	pcall(clientBypass.applyStaminaSignals)
-
-	pcall(function()
-		bind(Ws:GetPropertyChangedSignal("CurrentCamera"), function()
-			task.defer(function()
-				clientBypass.bindFovCam(Ws.CurrentCamera or workspace.CurrentCamera)
-			end)
-		end)
-	end)
-	
-	clientBypass.spdT = 0
-
-	bind(Run.Heartbeat, function(dt)
-		if AllowRunService ~= true or st.spdOn ~= true then
-			return
-		end
-		clientBypass.spdT += dt
-		if clientBypass.spdT >= 0.5 then
-			clientBypass.spdT = 0
-			clientBypass.applySpeed(false)
-		end
-	end)
-
-	bind(Run.Heartbeat, function(dt)
-		if AllowRunService ~= true or (st.infStamina ~= true and st.infNight ~= true) then
-			return
-		end
-
-		infSys.fast += dt
-		infSys.scan += dt
-		if infSys.fast < 0.75 then
-			return
-		end
-
-		infSys.fast = 0
-		applyInfTabs(false)
-		pcall(clientBypass.applyStaminaSignals)
-	end)
-
-	function DestroyUI()
 		AllowRunService = false
 		saveNow()
+		pcall(function()
+			if cleanupEsp then
+				cleanupEsp()
+			end
+		end)
 		wipeCharConns()
-		clientBypass.wipeFovConns()
-		clientBypass.restoreMovementPatches()
-		clientBypass.restoreStaminaModules()
-		clientBypass.restoreMainClientModules()
-		clientBypass.restoreStaminaSignals()
-		clientBypass.restoreHiddenUi()
-		wipeFog()
-		if cleanupEsp then
-			cleanupEsp()
+		if clientBypass and clientBypass.wipeFovConns then
+			clientBypass.wipeFovConns()
+		end
+		if clientBypass and clientBypass.restoreMovementPatches then
+			clientBypass.restoreMovementPatches()
+		end
+		if clientBypass and clientBypass.restoreHiddenUi then
+			clientBypass.restoreHiddenUi()
+		end
+		if wipeFog then
+			wipeFog()
 		end
 		wipeConns()
 		safeDestroy(FreeCamPart)
@@ -6593,339 +4267,2942 @@ if game.GameId == 847722000 then
 		infoBubble = nil
 		infoRoot = nil
 		infoLbl = nil
-		genv.RakeGui = false
-		pcall(function()
-			Obsidian:Destroy()
-		end)
+		pcall(function() genv.RakeGui = false end)
+		pcall(function() Obsidian:Destroy() end)
+	end,
+})
+
+local fogCons = {}
+local fogLast = nil
+
+wipeFog = function()
+	for i = #fogCons, 1, -1 do
+		local c = fogCons[i]
+		if c then
+			pcall(function()
+				c:Disconnect()
+			end)
+		end
+		fogCons[i] = nil
 	end
+end
 
-	clientBypass.RakeTargetCounter = {
-		Set = function(_, txt)
-			setInfoTarget(txt)
-		end,
-	}
-	clientBypass.TimeUntilDayCounter = {
-		Set = function(_, txt)
-			setInfoTime(txt)
-		end,
-	}
-	clientBypass.PowerCounter = {
-		Set = function(_, txt)
-			setInfoPower(txt)
-		end,
-	}
-
-	-- update time until day label
-
-	clientBypass.infoT = 1
-
-	bind(Run.Heartbeat, function(dt)
-		if AllowRunService ~= true then
-			return
-		end
-		clientBypass.infoT += dt
-		if clientBypass.infoT < 1 then
-			return
-		end
-		clientBypass.infoT = 0
-		pcall(function()
-			local sec = fmtTime(valOf(ffc(Rep, "Timer"), 0))
-			if valOf(ffc(Rep, "Night"), false) == true then
-				clientBypass.TimeUntilDayCounter:Set("Time Until Day : "..sec)
-			else
-				clientBypass.TimeUntilDayCounter:Set("Time Until Night : "..sec)
-			end
-			local powerValues = ffc(Rep, "PowerValues")
-			local powerLevel = valOf(powerValues and ffc(powerValues, "PowerLevel"), 1000)
-
-			clientBypass.PowerCounter:Set("Power : "..fmtPower(powerLevel).."%")
-		end)
-	end)
-
-	-- update rakes targetlabel
-
-
-	clientBypass.tarT = 0.25
-
-	bind(Run.Heartbeat, function(dt)
-		if AllowRunService ~= true then
-			return
-		end
-		clientBypass.tarT += dt
-		if clientBypass.tarT < 0.25 then
-			return
-		end
-		clientBypass.tarT = 0
-		pcall(function()
-			local rk = ffcr(Ws, "Rake")
-			local tv = ffcr(rk, "TargetVal")
-			local val = tv and tv.Value
-			if val and val.Parent then
-				clientBypass.RakeTargetCounter:Set("Rake's Target : " .. tostring(val.Parent))
-			else
-				clientBypass.RakeTargetCounter:Set("Rake's Target : none")
-			end
-		end)
-	end)
-
-
-	-- alert if blood hour
-
-	clientBypass.bhT = 1
-
-	bind(Run.Heartbeat, function(dt)
-		if AllowRunService ~= true then
-			return
-		end
-		clientBypass.bhT += dt
-		if clientBypass.bhT < 1 then
-			return
-		end
-		clientBypass.bhT = 0
-		local bh = ffc(Rep, "InitiateBloodHour")
-		if bh and bh.Value == true then
-			Obsidian:Notify({
-				Title = "ALERT",
-				Content = "HOLY JESUS BLOOD HOUR IS COMING NOW",
-				Duration = 5,
-				Image = 4483362458,
-			})
-			bh.Value = false
-		end
-	end)
-
-	if canCfg then
-		pcall(function()
-			Obsidian:LoadConfiguration()
-		end)
-	end
-	end
-
-	-- ================= 自动拾取信号枪核心逻辑（碰撞箱扩大 + 移动触碰版） =================
-	local flarePickup = {
-		queue = {},
-		busy = false,
-		enabled = false,
-		targetName = "FlareGunPickUp",
-		offset = Vector3.new(0, 0.8, 0),
-		moveDistance = 2.5,
-		moveSpeed = 20,
-		moveTime = 0.3,
-		returnDelay = 0.5,
-		hitboxScale = 2.0,
-	}
-
-	local function getFlarePosition(flare)
-		if not flare or not flare.Parent then return nil end
-		local primary = flare.PrimaryPart
-		if primary and primary:IsA("BasePart") then return primary.Position end
-		for _, child in ipairs(flare:GetChildren()) do
-			if child:IsA("BasePart") then return child.Position end
-		end
-		local ok, pos = pcall(function() return flare:GetPivot().Position end)
-		return ok and pos or nil
-	end
-
-	local function findHitbox(flare)
-		for _, child in ipairs(flare:GetDescendants()) do
-			if child:IsA("BasePart") and (child.Name == "Hitbox" or child.Name == "HitBox" or child.Name == "Handle") then
-				return child
-			end
-		end
-		for _, child in ipairs(flare:GetDescendants()) do
-			if child:IsA("BasePart") then
-				return child
-			end
-		end
+local function bindFog(sig, fn)
+	if not sig or type(fn) ~= "function" then
 		return nil
 	end
+	local ok, c = pcall(function()
+		return sig:Connect(fn)
+	end)
+	if ok and c then
+		fogCons[#fogCons + 1] = c
+		return c
+	end
+	return nil
+end
 
-	local function tryPrompt(flare, player)
-		for _, child in ipairs(flare:GetDescendants()) do
-			if child:IsA("ProximityPrompt") then
-				pcall(function() child:Prompt(player) end)
-				return true
+local function setFogOff()
+	if not Lit then
+		return
+	end
+	if fogLast == nil then
+		fogLast = tonumber(Lit.FogEnd) or 75
+	end
+	if Lit.FogEnd ~= 9e9 then
+		Lit.FogEnd = 9e9
+	end
+end
+
+local function watchFog()
+	wipeFog()
+	if _G.NoFog ~= true or not Lit then
+		return
+	end
+	setFogOff()
+	bindFog(Lit:GetPropertyChangedSignal("FogEnd"), function()
+		if _G.NoFog == true then
+			setFogOff()
+		end
+	end)
+end
+
+ClientTab:CreateToggle({
+	Name = "No Fog",
+	CurrentValue = st.noFog,
+	Flag = "NoFog",
+	Callback = function(state)
+		_G.NoFog = state == true
+		st.noFog = _G.NoFog
+		cfgSet("noFog", st.noFog)
+		if _G.NoFog == true then
+			watchFog()
+		else
+			wipeFog()
+			if Lit then
+				Lit.FogEnd = fogLast or 75
 			end
 		end
+	end,
+})
+
+watchFog()
+
+ClientTab:CreateToggle({
+	Name = "Bypass Death / Intro FX",
+	CurrentValue = st.disableDeathFx,
+	Flag = "BypassDeathIntroFx",
+	Callback = function(state)
+		st.disableDeathFx = state == true
+		_G.RakeDisableDeathFx = st.disableDeathFx
+		cfgSet("disableDeathFx", st.disableDeathFx)
+		if st.disableDeathFx then
+			clientBypass.applyDeathFxBypass()
+			clientBypass.applyCH(true)
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Disable Motion Blur",
+	CurrentValue = st.disableMotionBlur,
+	Flag = "DisableMotionBlur",
+	Callback = function(state)
+		st.disableMotionBlur = state == true
+		_G.RakeDisableMotionBlur = st.disableMotionBlur
+		cfgSet("disableMotionBlur", st.disableMotionBlur)
+		if st.disableMotionBlur then
+			clientBypass.applyMotionBlurBypass()
+			clientBypass.applyCH(true)
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Disable Esc/Menu FX",
+	CurrentValue = st.disableMenuFx,
+	Flag = "DisableEscMenuFx",
+	Callback = function(state)
+		st.disableMenuFx = state == true
+		_G.RakeDisableMenuFx = st.disableMenuFx
+		cfgSet("disableMenuFx", st.disableMenuFx)
+		if st.disableMenuFx then
+			clientBypass.applyMenuFxBypass()
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Intro Bypass / Restore UI",
+	CurrentValue = st.introBypass,
+	Flag = "IntroBypassRestoreUi",
+	Callback = function(state)
+		st.introBypass = state == true
+		_G.RakeIntroBypass = st.introBypass
+		cfgSet("introBypass", st.introBypass)
+		if st.introBypass then
+			clientBypass.applyIntroBypass()
+		else
+			_G.RakeIntroBypass = false
+		end
+	end,
+})
+
+ClientTab:CreateButton({
+	Name = "Restore CoreGui",
+	Callback = function()
+		clientBypass.restoreCoreGui()
+		Obsidian:Notify({
+			Title = "Client",
+			Content = "Topbar, reset, backpack, player list, chat, and mouse icon restored.",
+			Duration = 3,
+			Image = 4483362458,
+		})
+	end,
+})
+
+ClientTab:CreateButton({
+	Name = "Remove Intro GUI",
+	Callback = function()
+		local removed = clientBypass.removeIntroGui()
+		setScriptGlobal("IsLoading", nil)
+		setScriptGlobal("SLoaded", true)
+		clientBypass.restoreCoreGui()
+		Obsidian:Notify({
+			Title = "Intro",
+			Content = "Removed intro GUI count: " .. tostring(removed),
+			Duration = 3,
+			Image = 4483362458,
+		})
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Disable Shadows",
+	CurrentValue = st.disableShadows,
+	Flag = "DisableShadows",
+	Callback = function(state)
+		st.disableShadows = state == true
+		_G.RakeDisableShadows = st.disableShadows
+		cfgSet("disableShadows", st.disableShadows)
+		clientBypass.fireSettingsChanged("Shadows", not st.disableShadows)
+		clientBypass.applyGameSettingOverrides()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Force Chat Enabled",
+	CurrentValue = st.forceChat,
+	Flag = "ForceChatEnabled",
+	Callback = function(state)
+		st.forceChat = state == true
+		_G.RakeForceChat = st.forceChat
+		cfgSet("forceChat", st.forceChat)
+		clientBypass.fireSettingsChanged("Chat", st.forceChat)
+		clientBypass.applyGameSettingOverrides()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Mute Game Music",
+	CurrentValue = st.muteGameMusic,
+	Flag = "MuteGameMusic",
+	Callback = function(state)
+		st.muteGameMusic = state == true
+		cfgSet("muteGameMusic", st.muteGameMusic)
+		clientBypass.fireSettingsChanged("GameMusic", not st.muteGameMusic)
+		clientBypass.applyGameSettingOverrides()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Mute Chase Music",
+	CurrentValue = st.muteChaseMusic,
+	Flag = "MuteChaseMusic",
+	Callback = function(state)
+		st.muteChaseMusic = state == true
+		cfgSet("muteChaseMusic", st.muteChaseMusic)
+		clientBypass.fireSettingsChanged("ChaseMusic", not st.muteChaseMusic)
+		clientBypass.applyGameSettingOverrides()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Force Nametags",
+	CurrentValue = st.enableNametags,
+	Flag = "ForceNametags",
+	Callback = function(state)
+		st.enableNametags = state == true
+		_G.RakeForceNametags = st.enableNametags
+		cfgSet("enableNametags", st.enableNametags)
+		clientBypass.fireSettingsChanged("Nametags", st.enableNametags)
+		clientBypass.applyGameSettingOverrides()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Force Sixth Sense",
+	CurrentValue = st.enableSixthSense,
+	Flag = "ForceSixthSense",
+	Callback = function(state)
+		st.enableSixthSense = state == true
+		_G.RakeForceSixthSense = st.enableSixthSense
+		cfgSet("enableSixthSense", st.enableSixthSense)
+		clientBypass.fireSettingsChanged("SixthSense", st.enableSixthSense)
+		clientBypass.applyGameSettingOverrides()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Mute Movement Loops",
+	CurrentValue = st.muteMovementSounds,
+	Flag = "MuteMovementSounds",
+	Callback = function(state)
+		st.muteMovementSounds = state == true
+		_G.RakeMuteMovementSounds = st.muteMovementSounds
+		cfgSet("muteMovementSounds", st.muteMovementSounds)
+		if st.muteMovementSounds then
+			clientBypass.applySoundBypasses()
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Mute Footsteps",
+	CurrentValue = st.muteFootsteps,
+	Flag = "MuteFootsteps",
+	Callback = function(state)
+		st.muteFootsteps = state == true
+		_G.RakeMuteFootsteps = st.muteFootsteps
+		cfgSet("muteFootsteps", st.muteFootsteps)
+		if st.muteFootsteps then
+			clientBypass.applySoundBypasses()
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Mute Jump/Land Sounds",
+	CurrentValue = st.muteJumpLand,
+	Flag = "MuteJumpLandSounds",
+	Callback = function(state)
+		st.muteJumpLand = state == true
+		_G.RakeMuteJumpLand = st.muteJumpLand
+		cfgSet("muteJumpLand", st.muteJumpLand)
+		if st.muteJumpLand then
+			clientBypass.applySoundBypasses()
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Mute Water/Freefall Sounds",
+	CurrentValue = st.muteWaterFall,
+	Flag = "MuteWaterFreefallSounds",
+	Callback = function(state)
+		st.muteWaterFall = state == true
+		_G.RakeMuteWaterFall = st.muteWaterFall
+		cfgSet("muteWaterFall", st.muteWaterFall)
+		if st.muteWaterFall then
+			clientBypass.applySoundBypasses()
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Mute Death Sounds",
+	CurrentValue = st.muteDeathSounds,
+	Flag = "MuteDeathSounds",
+	Callback = function(state)
+		st.muteDeathSounds = state == true
+		_G.RakeMuteDeathSounds = st.muteDeathSounds
+		cfgSet("muteDeathSounds", st.muteDeathSounds)
+		if st.muteDeathSounds then
+			clientBypass.applySoundBypasses()
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Hide Prompt UI",
+	CurrentValue = st.hidePromptUi,
+	Flag = "HidePromptUi",
+	Callback = function(state)
+		st.hidePromptUi = state == true
+		_G.RakeHidePromptUi = st.hidePromptUi
+		cfgSet("hidePromptUi", st.hidePromptUi)
+		clientBypass.applyPromptUiBypass()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Freeze Look Angles",
+	CurrentValue = st.freezeLookAngles,
+	Flag = "FreezeLookAngles",
+	Callback = function(state)
+		st.freezeLookAngles = state == true
+		_G.RakeFreezeLookAngles = st.freezeLookAngles
+		cfgSet("freezeLookAngles", st.freezeLookAngles)
+		if st.freezeLookAngles then
+			clientBypass.applyLookFreeze()
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Hide Death Messages",
+	CurrentValue = st.hideDeathMessages,
+	Flag = "HideDeathMessages",
+	Callback = function(state)
+		st.hideDeathMessages = state == true
+		_G.RakeHideDeathMessages = st.hideDeathMessages
+		cfgSet("hideDeathMessages", st.hideDeathMessages)
+		clientBypass.applyDeathMessageBypass()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Block Favorite Prompts",
+	CurrentValue = st.blockFavoritePrompts,
+	Flag = "BlockFavoritePrompts",
+	Callback = function(state)
+		st.blockFavoritePrompts = state == true
+		_G.RakeBlockFavoritePrompts = st.blockFavoritePrompts
+		cfgSet("blockFavoritePrompts", st.blockFavoritePrompts)
+		clientBypass.cleanupPromptModals()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Block Group Prompts",
+	CurrentValue = st.blockGroupPrompts,
+	Flag = "BlockGroupPrompts",
+	Callback = function(state)
+		st.blockGroupPrompts = state == true
+		_G.RakeBlockGroupPrompts = st.blockGroupPrompts
+		cfgSet("blockGroupPrompts", st.blockGroupPrompts)
+		clientBypass.cleanupPromptModals()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Force PC Device",
+	CurrentValue = st.forcePcDevice,
+	Flag = "ForcePcDevice",
+	Callback = function(state)
+		st.forcePcDevice = state == true
+		cfgSet("forcePcDevice", st.forcePcDevice)
+		clientBypass.applyDeviceSpoof()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Flashlight No Shadows",
+	CurrentValue = st.flashlightNoShadows,
+	Flag = "FlashlightNoShadows",
+	Callback = function(state)
+		st.flashlightNoShadows = state == true
+		_G.RakeFlashlightNoShadows = st.flashlightNoShadows
+		cfgSet("flashlightNoShadows", st.flashlightNoShadows)
+		clientBypass.applyLightToolBypasses()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Flashlight Boost",
+	CurrentValue = st.flashlightBoost,
+	Flag = "FlashlightBoost",
+	Callback = function(state)
+		st.flashlightBoost = state == true
+		_G.RakeFlashlightBoost = st.flashlightBoost
+		cfgSet("flashlightBoost", st.flashlightBoost)
+		clientBypass.applyLightToolBypasses()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Block Menu Reopen",
+	CurrentValue = st.disableMenuReopen,
+	Flag = "BlockMenuReopen",
+	Callback = function(state)
+		st.disableMenuReopen = state == true
+		_G.RakeDisableMenuReopen = st.disableMenuReopen
+		cfgSet("disableMenuReopen", st.disableMenuReopen)
+		clientBypass.removeIntroClones()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Force Backpack Enabled",
+	CurrentValue = st.forceBackpack,
+	Flag = "ForceBackpackEnabled",
+	Callback = function(state)
+		st.forceBackpack = state == true
+		_G.RakeForceBackpack = st.forceBackpack
+		cfgSet("forceBackpack", st.forceBackpack)
+		clientBypass.forceCoreParts()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Force Mouse Icon",
+	CurrentValue = st.forceMouseIcon,
+	Flag = "ForceMouseIcon",
+	Callback = function(state)
+		st.forceMouseIcon = state == true
+		_G.RakeForceMouseIcon = st.forceMouseIcon
+		cfgSet("forceMouseIcon", st.forceMouseIcon)
+		clientBypass.forceCoreParts()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Force Topbar Enabled",
+	CurrentValue = st.forceTopbar,
+	Flag = "ForceTopbarEnabled",
+	Callback = function(state)
+		st.forceTopbar = state == true
+		_G.RakeForceTopbar = st.forceTopbar
+		cfgSet("forceTopbar", st.forceTopbar)
+		clientBypass.forceCoreParts()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Disable Visual FX",
+	CurrentValue = st.disableVisualFx,
+	Flag = "DisableVisualFX",
+	Callback = function(state)
+		st.disableVisualFx = state == true
+		_G.RakeDisableVisualFx = st.disableVisualFx
+		cfgSet("disableVisualFx", st.disableVisualFx)
+		clientBypass.applyCH(true)
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Disable Camera Shake",
+	CurrentValue = st.disableCameraShake,
+	Flag = "DisableCameraShake",
+	Callback = function(state)
+		st.disableCameraShake = state == true
+		_G.RakeDisableCameraShake = st.disableCameraShake
+		cfgSet("disableCameraShake", st.disableCameraShake)
+		clientBypass.applyCH(true)
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Disable Camera Bobbing",
+	CurrentValue = st.disableCameraBobbing,
+	Flag = "DisableCameraBobbing",
+	Callback = function(state)
+		st.disableCameraBobbing = state == true
+		_G.RakeDisableCameraBobbing = st.disableCameraBobbing
+		cfgSet("disableCameraBobbing", st.disableCameraBobbing)
+		if st.disableCameraBobbing then
+			clientBypass.applyCH(true)
+		else
+			clientBypass.restoreMovementPatches()
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Hide Location Popups",
+	CurrentValue = st.hideLocationPopups,
+	Flag = "HideLocationPopups",
+	Callback = function(state)
+		st.hideLocationPopups = state == true
+		_G.RakeHideLocationPopups = st.hideLocationPopups
+		cfgSet("hideLocationPopups", st.hideLocationPopups)
+		clientBypass.applyCH(true)
+		clientBypass.applyClientPopupBypasses()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Hide Scrap Popups",
+	CurrentValue = st.hideScrapPopups,
+	Flag = "HideScrapPopups",
+	Callback = function(state)
+		st.hideScrapPopups = state == true
+		_G.RakeHideScrapPopups = st.hideScrapPopups
+		cfgSet("hideScrapPopups", st.hideScrapPopups)
+		clientBypass.applyClientPopupBypasses()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Hide Trap Struggle UI",
+	CurrentValue = st.hideTrapGui,
+	Flag = "HideTrapStruggleUI",
+	Callback = function(state)
+		st.hideTrapGui = state == true
+		_G.RakeHideTrapGui = st.hideTrapGui
+		cfgSet("hideTrapGui", st.hideTrapGui)
+		clientBypass.applyClientPopupBypasses()
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "No Downed / Ragdoll",
+	CurrentValue = st.noDowned,
+	Flag = "NoDownedRagdoll",
+	Callback = function(state)
+		st.noDowned = state == true
+		_G.RakeNoDowned = st.noDowned
+		cfgSet("noDowned", st.noDowned)
+		clientBypass.applyCharBypasses()
+		clientBypass.applyCH(true)
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "No Movement Lock",
+	CurrentValue = st.noMoveLock,
+	Flag = "NoMovementLock",
+	Callback = function(state)
+		st.noMoveLock = state == true
+		_G.RakeNoMoveLock = st.noMoveLock
+		cfgSet("noMoveLock", st.noMoveLock)
+		clientBypass.applyCharBypasses()
+		clientBypass.applyCH(true)
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "No Trap Lock",
+	CurrentValue = st.noTrapLock,
+	Flag = "NoTrapLock",
+	Callback = function(state)
+		st.noTrapLock = state == true
+		_G.RakeNoTrapLock = st.noTrapLock
+		cfgSet("noTrapLock", st.noTrapLock)
+		clientBypass.applyCharBypasses()
+		clientBypass.applyCH(true)
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "No Jumpscare Camera",
+	CurrentValue = st.noJumpscareCam,
+	Flag = "NoJumpscareCamera",
+	Callback = function(state)
+		st.noJumpscareCam = state == true
+		_G.RakeNoJumpscareCam = st.noJumpscareCam
+		cfgSet("noJumpscareCam", st.noJumpscareCam)
+		clientBypass.applyCH(true)
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "No Chase Static",
+	CurrentValue = st.noChaseStatic,
+	Flag = "NoChaseStatic",
+	Callback = function(state)
+		st.noChaseStatic = state == true
+		_G.RakeNoChaseStatic = st.noChaseStatic
+		cfgSet("noChaseStatic", st.noChaseStatic)
+		clientBypass.applyCH(true)
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Fullbright",
+	CurrentValue = st.fullbright,
+	Flag = "Fullbright",
+	Callback = function(state)
+		st.fullbright = state == true
+		_G.RakeFullbright = st.fullbright
+		cfgSet("fullbright", st.fullbright)
+		clientBypass.applyFullbright()
+	end,
+})
+
+ClientTab:CreateButton({
+	Name = "Third Person",
+	Callback = function()
+		Plrs.LocalPlayer.Character.RagdollTime.RagdollSwitch.Value = true
+		Plrs.LocalPlayer.Character.RagdollTime.RagdollSwitch.Value = false
+	end,
+})
+
+
+
+PlayerTab:CreateToggle({
+	Name = "Inf Stamina",
+	CurrentValue = st.infStamina,
+	Flag = "InfStamina",
+	Callback = function(state)
+		_G.InfStamina = state == true
+		st.infStamina = _G.InfStamina
+		cfgSet("infStamina", st.infStamina)
+		if st.infStamina == true then
+			applyInfTabs(true)
+			queueInfTabs(12)
+			pcall(clientBypass.applyStaminaModuleBypass)
+			pcall(clientBypass.applyStaminaSignals)
+			clientBypass.applyCH(true)
+		else
+			pcall(clientBypass.applyStaminaSignals)
+		end
+	end,
+})
+
+PlayerTab:CreateToggle({
+	Name = "Inf Night Vision",
+	CurrentValue = st.infNight,
+	Flag = "InfNightVision",
+	Callback = function(state)
+		_G.InfNightVision = state == true
+		st.infNight = _G.InfNightVision
+		cfgSet("infNight", st.infNight)
+		if st.infNight == true then
+			applyInfTabs(true)
+			queueInfTabs(12)
+			clientBypass.applyStaminaModuleBypass()
+			clientBypass.applyCH(true)
+		end
+	end,
+})
+
+local RakeKillauraToggle = ExploitsTab:CreateToggle({
+	Name = "Rake Killaura",
+	CurrentValue = st.rakeAura,
+	Flag = "RakeAura",
+	Callback = function(state)
+		_G.RakeKillAura = state == true
+		st.rakeAura = _G.RakeKillAura
+		cfgSet("rakeAura", st.rakeAura)
+		Obsidian:Notify({
+			Title = "Rake Killaura",
+			Content = "Rake Killaura : "..tostring(_G.RakeKillAura),
+			Duration = 1,
+			Image = 4483362458,
+		})
+	end,
+})
+
+ExploitsTab:CreateSlider({
+	Name = "Killaura Range",
+	Range = {6, 30},
+	Increment = 1,
+	CurrentValue = st.rakeAuraRange,
+	Flag = "RakeAuraRange",
+	Callback = function(v)
+		st.rakeAuraRange = math.clamp(tonumber(v) or 12, 6, 30)
+		_G.RakeAuraRange = st.rakeAuraRange
+		cfgSet("rakeAuraRange", st.rakeAuraRange)
+	end,
+})
+
+ExploitsTab:CreateSlider({
+	Name = "Killaura Delay",
+	Range = {0.05, 0.6},
+	Increment = 0.01,
+	CurrentValue = st.rakeAuraDelay,
+	Flag = "RakeAuraDelay",
+	Callback = function(v)
+		st.rakeAuraDelay = math.clamp(tonumber(v) or 0.12, 0.05, 0.6)
+		_G.RakeAuraDelay = st.rakeAuraDelay
+		cfgSet("rakeAuraDelay", st.rakeAuraDelay)
+	end,
+})
+
+ExploitsTab:CreateToggle({
+	Name = "Killaura Auto Equip",
+	CurrentValue = st.rakeAuraAutoEquip,
+	Flag = "RakeAuraAutoEquip",
+	Callback = function(state)
+		st.rakeAuraAutoEquip = state == true
+		_G.RakeAuraAutoEquip = st.rakeAuraAutoEquip
+		cfgSet("rakeAuraAutoEquip", st.rakeAuraAutoEquip)
+	end,
+})
+
+local auraT = 0
+local aura = {
+	rk = nil,
+	rr = nil,
+	rh = nil,
+	stick = nil,
+	ev = nil,
+	hp = nil,
+	bp = nil,
+}
+
+local function auraClearRake()
+	aura.rk = nil
+	aura.rr = nil
+	aura.rh = nil
+end
+
+local function auraClearStick()
+	aura.stick = nil
+	aura.ev = nil
+	aura.hp = nil
+end
+
+local function auraIsStick(v)
+	if not (v and v:IsA("Tool")) then
 		return false
 	end
+	local n = string.lower(v.Name)
+	return n == "stunstick" or (string.find(n, "stun", 1, true) and string.find(n, "stick", 1, true)) ~= nil
+end
 
-	local function processFlareQueue()
-		if flarePickup.busy then return end
-		if #flarePickup.queue == 0 then return end
-		if not flarePickup.enabled then
-			flarePickup.queue = {}
-			return
-		end
-
-		local flare = table.remove(flarePickup.queue, 1)
-		if not flare or not flare.Parent then
-			processFlareQueue()
-			return
-		end
-
-		local flarePos = getFlarePosition(flare)
-		if not flarePos then
-			processFlareQueue()
-			return
-		end
-
-		local hitbox = findHitbox(flare)
-		local originalSize = nil
-		local originalCanTouch = nil
-		if hitbox then
-			originalSize = hitbox.Size
-			originalCanTouch = hitbox.CanTouch
-			hitbox.Size = originalSize * flarePickup.hitboxScale
-			hitbox.CanTouch = true
-			hitbox.CanQuery = true
-		end
-
-		local hrp = GET_HRP()
-		local hum = getHum()
-		if not hrp or not hum then
-			if hitbox and originalSize then
-				hitbox.Size = originalSize
-				hitbox.CanTouch = originalCanTouch
-			end
-			table.insert(flarePickup.queue, 1, flare)
-			task.wait(0.5)
-			processFlareQueue()
-			return
-		end
-
-		local originalCF = hrp.CFrame
-		local targetPos = flarePos + flarePickup.offset
-		local oldSpeed = hum.WalkSpeed
-		local oldAutoRotate = hum.AutoRotate
-
-		flarePickup.busy = true
-		task.spawn(function()
-			local success = pcall(function()
-				SET_HRP_CFRAME(CFrame.new(targetPos))
-				task.wait(0.1)
-
-				local prompted = tryPrompt(flare, Plrs.LocalPlayer)
-				if not prompted then
-					hum.AutoRotate = false
-					hum.WalkSpeed = flarePickup.moveSpeed
-					local forward = hrp.CFrame.LookVector
-					local targetMove = hrp.Position + forward * flarePickup.moveDistance
-					hum:MoveTo(targetMove)
-					task.wait(flarePickup.moveTime)
-
-					local backPos = hrp.Position - forward * flarePickup.moveDistance
-					hum:MoveTo(backPos)
-					task.wait(flarePickup.moveTime)
-
-					hum.WalkSpeed = oldSpeed
-					hum.AutoRotate = oldAutoRotate
-					task.wait(flarePickup.returnDelay)
-				end
-
-				if hrp and hrp.Parent then
-					SET_HRP_CFRAME(originalCF)
-				end
-			end)
-
-			if hitbox and originalSize then
-				pcall(function()
-					hitbox.Size = originalSize
-					if originalCanTouch ~= nil then hitbox.CanTouch = originalCanTouch end
-				end)
-			end
-
-			if not success then
-				pcall(function()
-					if hrp and hrp.Parent then SET_HRP_CFRAME(originalCF) end
-					if hum then
-						hum.WalkSpeed = oldSpeed
-						hum.AutoRotate = oldAutoRotate
-					end
-				end)
-			end
-
-			flarePickup.busy = false
-			processFlareQueue()
-		end)
+local function auraGetRake()
+	local rk = aura.rk
+	if not (rk and rk.Parent) then
+		rk = ffc(Ws, "Rake")
+		aura.rk = rk
+		aura.rr = nil
+		aura.rh = nil
 	end
+	if not rk then
+		return nil
+	end
+	local rh = aura.rh
+	if not (rh and rh.Parent) then
+		rh = ffc(rk, "Monster") or ffca(rk, "Humanoid")
+		aura.rh = rh
+	end
+	if rh and rh.Health and rh.Health <= 0 then
+		return nil
+	end
+	local rr = aura.rr
+	if not (rr and rr.Parent) then
+		rr = ffc(rk, "HumanoidRootPart") or ffcr(rk, "HumanoidRootPart")
+		aura.rr = rr
+	end
+	if not rr then
+		return nil
+	end
+	return rk, rr, rh
+end
 
-	local function addFlareToQueue(flare)
-		if not flare or flare.Name ~= flarePickup.targetName then return end
-		if not flare.Parent then return end
-		for _, v in ipairs(flarePickup.queue) do
-			if v == flare then return end
-		end
-		table.insert(flarePickup.queue, flare)
-		if not flarePickup.busy then
-			task.spawn(processFlareQueue)
+local function auraGetPart(rk, rr, pos)
+	local best = rr
+	local bd = rr and (rr.Position - pos).Magnitude or math.huge
+	local names = { "Head", "Torso", "UpperTorso", "LowerTorso", "HumanoidRootPart" }
+	for i = 1, #names do
+		local v = ffc(rk, names[i])
+		if v and v:IsA("BasePart") then
+			local d = (v.Position - pos).Magnitude
+			if d < bd then
+				best = v
+				bd = d
+			end
 		end
 	end
+	return best
+end
 
-	function scanExistingFlares()
-		local count = 0
-		local ws = game:GetService("Workspace")
-		for _, obj in ipairs(ws:GetDescendants()) do
-			if obj.Name == flarePickup.targetName then
-				addFlareToQueue(obj)
-				count = count + 1
+local function auraGetStick()
+	local ch = getChar()
+	if not ch then
+		return nil
+	end
+	local s = aura.stick
+	if not (s and s.Parent) then
+		s = nil
+		for _, v in kids(ch) do
+			if auraIsStick(v) then
+				s = v
+				break
 			end
 		end
-		return count
-	end
-
-	local function watchFlareGun()
-		local ws = game:GetService("Workspace")
-		ws.DescendantAdded:Connect(function(obj)
-			if obj.Name == flarePickup.targetName and flarePickup.enabled then
-				addFlareToQueue(obj)
+		if not s then
+			local bp = aura.bp
+			if not (bp and bp.Parent) then
+				local lp = Plrs.LocalPlayer
+				bp = lp and ffc(lp, "Backpack") or nil
+				aura.bp = bp
 			end
-		end)
-		ws.DescendantRemoving:Connect(function(obj)
-			if obj.Name == flarePickup.targetName then
-				for i = #flarePickup.queue, 1, -1 do
-					if flarePickup.queue[i] == obj then
-						table.remove(flarePickup.queue, i)
+			if bp then
+				for _, v in kids(bp) do
+					if auraIsStick(v) then
+						s = v
 						break
 					end
 				end
 			end
+			if s and _G.RakeAuraAutoEquip == true then
+				local hum = getHum()
+				if hum then
+					pcall(function()
+						hum:EquipTool(s)
+					end)
+				end
+				return nil
+			end
+		end
+		aura.stick = s
+		aura.ev = nil
+		aura.hp = nil
+	end
+	if not (s and s.Parent == ch) then
+		if s and _G.RakeAuraAutoEquip == true then
+			local hum = getHum()
+			if hum then
+				pcall(function()
+					hum:EquipTool(s)
+				end)
+			end
+			auraClearStick()
+		end
+		return nil
+	end
+	local ev = aura.ev
+	if not (ev and ev.Parent) then
+		ev = ffc(s, "Event") or ffcr(s, "Event")
+		aura.ev = ev
+	end
+	local hp = aura.hp
+	if not (hp and hp.Parent) then
+		hp = ffc(s, "HitPart") or ffcr(s, "HitPart")
+		aura.hp = hp
+	end
+	return s, ev, hp
+end
+
+local function auraHasPower()
+	local p = ffc(Rep, "StationPower")
+	if p and p.Value ~= true then
+		return false
+	end
+	return true
+end
+
+local function auraHasStamina()
+	if st.infStamina == true or _G.InfStamina == true then
+		return true
+	end
+	local g = ffc(Rep, "GSTMNA")
+	if not g then
+		return true
+	end
+	local ok, val = pcall(function()
+		return g:Invoke()
+	end)
+	return not ok or not val or val >= 12
+end
+
+local function auraTakeStamina()
+	if st.infStamina == true or _G.InfStamina == true then
+		return
+	end
+	local tks = ffc(Rep, "TKSMNA")
+	if tks then
+		pcall(function()
+			tks:Fire(12)
 		end)
 	end
+end
 
-	local function onCharacterAddedForFlare()
-		flarePickup.queue = {}
-		flarePickup.busy = false
-		if flarePickup.enabled then
-			task.wait(0.5)
-			scanExistingFlares()
+local function auraPrepHitpart(hp)
+	if not hp then
+		return
+	end
+	pcall(function()
+		hp.CanTouch = true
+		hp.CanQuery = true
+	end)
+end
+
+local function auraSwing(ev, hit)
+	if not (ev and hit) then
+		return
+	end
+	pcall(function()
+		ev:FireServer("S")
+	end)
+	auraTakeStamina()
+	pcall(function()
+		ev:FireServer("H", hit)
+	end)
+end
+
+bind(Ws.ChildAdded, function(obj)
+	if obj and obj.Name == "Rake" then
+		auraClearRake()
+		aura.rk = obj
+	end
+end)
+
+bind(Ws.ChildRemoved, function(obj)
+	if obj == aura.rk or obj.Name == "Rake" then
+		auraClearRake()
+	end
+end)
+
+bind(Plrs.LocalPlayer.CharacterAdded, function()
+	auraClearStick()
+end)
+
+bind(Run.Heartbeat, function(dt)
+	if AllowRunService ~= true or _G.RakeKillAura ~= true then
+		auraT = 0
+		return
+	end
+	auraT += dt
+	pcall(function()
+		local root = GET_HRP()
+		if not root then
+			return
+		end
+		local rk, rr = auraGetRake()
+		if not (rk and rr) then
+			return
+		end
+		local range = math.clamp(tonumber(_G.RakeAuraRange) or 12, 6, 30)
+		if (rr.Position - root.Position).Magnitude > range then
+			return
+		end
+		local stick, ev, hp = auraGetStick()
+		if not (stick and ev) then
+			return
+		end
+		local hit = auraGetPart(rk, rr, root.Position)
+		if not hit or (hit.Position - root.Position).Magnitude > range then
+			return
+		end
+		auraPrepHitpart(hp)
+		local delay = math.clamp(tonumber(_G.RakeAuraDelay) or 0.12, 0.05, 0.6)
+		if auraT >= delay and auraHasPower() and auraHasStamina() then
+			auraT = 0
+			auraSwing(ev, hit)
+		end
+	end)
+end)
+
+
+
+-- rake killaura bind
+
+ExploitsTab:CreateKeybind({
+	Name = "Toggle Killaura",
+	CurrentKeybind = "R",
+	HoldToInteract = false,
+	Flag = "KillAuraKeybind",
+	Callback = function(state)
+		if _G.RakeKillAura == true then
+			RakeKillauraToggle:Set(false)
+		elseif _G.RakeKillAura == false then
+			RakeKillauraToggle:Set(true)
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Rake Chams",
+	CurrentValue = st.rakeChams,
+	Flag = "RakeChams",
+	Callback = function(state)
+		_G.RakeChams = state == true
+		st.rakeChams = _G.RakeChams
+		cfgSet("rakeChams", st.rakeChams)
+		if not state and cleanupEsp then
+			cleanupEsp("rake")
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Rake Info Bubble",
+	CurrentValue = st.infoBubble,
+	Flag = "RakeInfoBubble",
+	Callback = function(state)
+		st.infoBubble = state == true
+		cfgSet("infoBubble", st.infoBubble)
+		setBubbleVisible(st.infoBubble)
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Player ESP",
+	CurrentValue = st.playerEsp,
+	Flag = "PlrEsp",
+	Callback = function(state)
+		_G.PlayerESP = state == true
+		st.playerEsp = _G.PlayerESP
+		cfgSet("playerEsp", st.playerEsp)
+		if not state and cleanupEsp then
+			cleanupEsp("players")
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Show Distance Travelled",
+	CurrentValue = st.showDist,
+	Flag = "ShowDistanceTravelled",
+	Callback = function(state)
+		_G.PlayerESPShowDistance = state == true
+		st.showDist = _G.PlayerESPShowDistance
+		cfgSet("showDist", st.showDist)
+	end,
+})
+
+ExploitsTab:CreateButton({
+	Name = "Bring Scraps",
+	Callback = function()
+		for i,v in Ws.Filter.ScrapSpawns:QueryDescendants("Instance") do
+			if v.Name:lower() == "scrap" then
+				v:PivotTo(Plrs.LocalPlayer.Character:GetPivot())
+			end
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Flare Gun ESP",
+	CurrentValue = st.flareEsp,
+	Flag = "FlareGunESP",
+	Callback = function(state)
+		_G.FlareGunESP = state == true
+		st.flareEsp = _G.FlareGunESP
+		cfgSet("flareEsp", st.flareEsp)
+		if not state and cleanupEsp then
+			cleanupEsp("flare")
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "SupplyDrop ESP",
+	CurrentValue = st.dropEsp,
+	Flag = "SupplyDropESP",
+	Callback = function(state)
+		_G.SupplyDropESP = state == true
+		st.dropEsp = _G.SupplyDropESP
+		cfgSet("dropEsp", st.dropEsp)
+		if not state and cleanupEsp then
+			cleanupEsp("drops")
+		end
+	end,
+})
+
+
+
+esp = {
+	flare = nil,
+	rake = nil,
+	drops = {},
+	locs = {},
+	players = {},
+	scraps = {},
+	scrapRoot = nil,
+	traps = {},
+}
+
+esp.getLocFolder = function()
+	local filter = ffc(Ws, "Filter")
+	return filter and ffc(filter, "LocationPoints") or nil
+end
+
+esp.locName = function(obj)
+	local n = tostring(obj and obj.Name or "Location")
+	n = n:gsub("MSG$", "")
+	n = n:gsub("_", " ")
+	n = n:gsub("(%l)(%u)", "%1 %2")
+	return n
+end
+
+esp.locPos = function(obj)
+	if not obj then
+		return nil
+	end
+	if obj:IsA("BasePart") then
+		return obj.Position
+	end
+	if obj:IsA("Model") then
+		local ok, cf = pcall(function()
+			return obj:GetPivot()
+		end)
+		return ok and cf and cf.Position or nil
+	end
+	if obj:IsA("CFrameValue") then
+		return obj.Value.Position
+	end
+	if obj:IsA("Vector3Value") then
+		return obj.Value
+	end
+	return nil
+end
+
+clientBypass.fovUiMult = function()
+	return 1
+end
+
+esp.drawTxt = function(txt, col)
+	if not Drawing or not Drawing.new then
+		return nil
+	end
+	local ok, d = pcall(function()
+		return Drawing.new("Text")
+	end)
+	if not ok or not d then
+		return nil
+	end
+	d.Text = txt or ""
+	d.Color = col or Color3.fromRGB(255, 255, 255)
+	d.Outline = false
+	d.Center = true
+	d.Font = 2
+	d.Size = st.espSize or 12
+	d.Visible = false
+	return d
+end
+
+esp.cham = function(par, name, fill, out, trans)
+	if not par or st.espChams ~= true then
+		return nil
+	end
+	local h = ffc(par, name)
+	if h and h:IsA("Highlight") then
+		h.Enabled = true
+		return h
+	end
+	h = Instance.new("Highlight")
+	h.Name = name
+	h.Adornee = par
+	h.FillColor = fill or Color3.fromRGB(255, 255, 255)
+	h.OutlineColor = out or Color3.fromRGB(170, 170, 170)
+	h.FillTransparency = trans or 0.3
+	h.OutlineTransparency = 0.8
+	h.Parent = par
+	return h
+end
+
+esp.posOf = function(obj)
+	if not obj then
+		return nil
+	end
+	if obj:IsA("BasePart") then
+		return obj.Position
+	end
+	if obj:IsA("Model") then
+		local pp = obj.PrimaryPart or ffcr(obj, "HumanoidRootPart") or ffcr(obj, "Head") or ffcr(obj, "HitBox") or ffcr(obj, "Scrap")
+		if pp and pp:IsA("BasePart") then
+			return pp.Position
+		end
+		local ok, cf = pcall(function()
+			return obj:GetPivot()
+		end)
+		if ok and cf then
+			return cf.Position
 		end
 	end
+	return nil
+end
 
-	local function startFlareWatcher()
-		local lp = Plrs.LocalPlayer
-		if lp then
-			lp.CharacterAdded:Connect(onCharacterAddedForFlare)
-			if lp.Character then onCharacterAddedForFlare() end
-		end
-		watchFlareGun()
+esp.show = function(d, pos, txt)
+	if not d or not pos then
+		if d then d.Visible = false end
+		return
 	end
+	local cam = workspace.CurrentCamera
+	if not cam then
+		d.Visible = false
+		return
+	end
+	local me = GET_HRP()
+	local dist
+	if me then
+		dist = (pos - me.Position).Magnitude
+		if (tonumber(st.espMax) or 0) > 0 and dist > st.espMax then
+			d.Visible = false
+			return
+		end
+	end
+	local p, on = cam:WorldToViewportPoint(pos)
+	if on then
+		local text = txt or d.Text
+		if st.espDist == true and dist then
+			text = tostring(text) .. " [" .. tostring(math.floor(dist + 0.5)) .. "m]"
+		end
+		if d.Text ~= text then
+			d.Text = text
+		end
+		local size = st.espSize or d.Size
+		if d.Size ~= size then
+			d.Size = size
+		end
+		if d.Outline ~= false then
+			d.Outline = false
+		end
+		local pos2 = Vector2.new(p.X, p.Y)
+		if d.Position ~= pos2 then
+			d.Position = pos2
+		end
+		if d.Visible ~= true then
+			d.Visible = true
+		end
+	else
+		if d.Visible ~= false then
+			d.Visible = false
+		end
+	end
+end
 
-	-- 覆盖全局 setFlarePickupEnabled 使其与本地变量同步
-	local originalSetFlarePickupEnabled = setFlarePickupEnabled
-	setFlarePickupEnabled = function(enabled)
-		flarePickup.enabled = enabled == true
-		if originalSetFlarePickupEnabled then originalSetFlarePickupEnabled(enabled) end
-		if flarePickup.enabled then
-			scanExistingFlares()
+esp.itemVal = function(root, name)
+	local cur = root
+	for _ = 1, 5 do
+		if not cur then
+			break
+		end
+		local v = ffc(cur, name)
+		if v then
+			return valOf(v, "?")
+		end
+		local ok, attr = pcall(function()
+			return cur:GetAttribute(name)
+		end)
+		if ok and attr ~= nil then
+			return attr
+		end
+		cur = cur.Parent
+	end
+	return "?"
+end
+
+esp.scrapTxt = function(part)
+	local root = part and part.Parent
+	local pts = esp.itemVal(root, "PointsVal")
+	local lvl = esp.itemVal(root, "LevelVal")
+	return "Scrap, Points "..tostring(pts)..", Level "..tostring(lvl)
+end
+
+esp.clearOne = function(tab, key)
+	local it = tab[key]
+	if not it then
+		return
+	end
+	safeDrawRemove(it.d)
+	safeDestroy(it.h)
+	tab[key] = nil
+end
+
+cleanupEsp = function(kind)
+	if not kind or kind == "flare" then
+		if esp.flare then
+			safeDrawRemove(esp.flare.d)
+			safeDestroy(esp.flare.h)
+			esp.flare = nil
+		end
+	end
+	if not kind or kind == "rake" then
+		if esp.rake then
+			safeDrawRemove(esp.rake.d)
+			safeDestroy(esp.rake.h)
+			esp.rake = nil
+		end
+	end
+	if not kind or kind == "players" then
+		for k in esp.players do
+			esp.clearOne(esp.players, k)
+		end
+	end
+	if not kind or kind == "drops" then
+		for k in esp.drops do
+			esp.clearOne(esp.drops, k)
+		end
+	end
+	if not kind or kind == "locs" then
+		for k, d in esp.locs do
+			safeDrawRemove(d)
+			esp.locs[k] = nil
+		end
+	end
+	if not kind or kind == "scraps" then
+		for k in esp.scraps do
+			esp.clearOne(esp.scraps, k)
+		end
+	end
+	if not kind or kind == "traps" then
+		for k in esp.traps do
+			esp.clearOne(esp.traps, k)
+		end
+	end
+end
+
+ClientTab:CreateToggle({
+	Name = "Location ESP",
+	CurrentValue = st.locEsp,
+	Flag = "LocationESP",
+	Callback = function(state)
+		_G.LocationESP = state == true
+		st.locEsp = _G.LocationESP
+		cfgSet("locEsp", st.locEsp)
+		if not state and cleanupEsp then
+			cleanupEsp("locs")
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Scrap ESP",
+	CurrentValue = st.scrapEsp,
+	Flag = "ScrapESP",
+	Callback = function(state)
+		_G.ScrapESP = state == true
+		st.scrapEsp = _G.ScrapESP
+		cfgSet("scrapEsp", st.scrapEsp)
+		if state then
+			esp.scrapRoot = nil
+		elseif cleanupEsp then
+			cleanupEsp("scraps")
+		end
+	end,
+})
+
+ClientTab:CreateToggle({
+	Name = "Rake Trap ESP",
+	CurrentValue = st.trapEsp,
+	Flag = "RakeTrapESP",
+	Callback = function(state)
+		_G.RakeTrapESP = state == true
+		st.trapEsp = _G.RakeTrapESP
+		cfgSet("trapEsp", st.trapEsp)
+		if not state and cleanupEsp then
+			cleanupEsp("traps")
+		end
+	end,
+})
+
+esp.scanT = 1
+esp.updT = 0
+
+esp.espAny = function()
+	return _G.FlareGunESP == true or _G.RakeChams == true or _G.PlayerESP == true or _G.SupplyDropESP == true or _G.LocationESP == true or _G.ScrapESP == true or _G.RakeTrapESP == true
+end
+
+esp.scanEsp = function()
+	if _G.FlareGunESP == true then
+		local fl = ffcr(Ws, "FlareGunPickUp")
+		if fl then
+			if not esp.flare or esp.flare.o ~= fl then
+				cleanupEsp("flare")
+				esp.flare = {
+					o = fl,
+					d = esp.drawTxt("Flare Gun", Color3.fromRGB(0, 225, 255)),
+					h = esp.cham(fl, "FlareGunChams", Color3.fromRGB(255, 0, 0), Color3.fromRGB(170, 170, 170), 0.3),
+				}
+			end
 		else
+			cleanupEsp("flare")
+		end
+	else
+		cleanupEsp("flare")
+	end
+
+	if _G.RakeChams == true then
+		local rk = ffcr(Ws, "Rake")
+		if rk then
+			if not esp.rake or esp.rake.o ~= rk then
+				cleanupEsp("rake")
+				esp.rake = {
+					o = rk,
+					d = esp.drawTxt("Rake", Color3.fromRGB(255, 0, 0)),
+					h = esp.cham(rk, "RakeChams", Color3.fromRGB(170, 0, 0), Color3.fromRGB(255, 255, 255), 0.3),
+				}
+			end
+		else
+			cleanupEsp("rake")
+		end
+	else
+		cleanupEsp("rake")
+	end
+
+	if _G.PlayerESP == true then
+		for _, p in Plrs:GetPlayers() do
+			if p ~= Plrs.LocalPlayer and p.Character then
+				local ch = p.Character
+				if not esp.players[p] or esp.players[p].o ~= ch then
+					esp.clearOne(esp.players, p)
+					esp.players[p] = {
+						o = ch,
+						d = esp.drawTxt(p.Name, Color3.fromRGB(0, 255, 34)),
+						h = esp.cham(ch, "PlayerChams", Color3.fromRGB(0, 11, 170), Color3.fromRGB(170, 170, 170), 0.3),
+					}
+				end
+			end
+		end
+		for p, it in esp.players do
+			if not p.Parent or not p.Character or p.Character ~= it.o then
+				esp.clearOne(esp.players, p)
+			end
+		end
+	else
+		cleanupEsp("players")
+	end
+
+	if _G.SupplyDropESP == true then
+		eachDrop(function(box)
+			if not esp.drops[box] then
+				esp.drops[box] = {
+					o = box,
+					d = esp.drawTxt("Supply Drop", Color3.fromRGB(251, 255, 0)),
+					h = nil,
+				}
+			end
+		end)
+		for box in esp.drops do
+			if not box.Parent then
+				esp.clearOne(esp.drops, box)
+			end
+		end
+	else
+		cleanupEsp("drops")
+	end
+
+	if _G.ScrapESP == true then
+		local filter = ffc(Ws, "Filter")
+		local root = filter and ffc(filter, "ScrapSpawns")
+		if root ~= esp.scrapRoot then
+			esp.scrapRoot = root
+			cleanupEsp("scraps")
+			for _, v in desc(root) do
+				if v.Name == "Scrap" and v:IsA("BasePart") and not esp.scraps[v] then
+					esp.scraps[v] = {
+						o = v,
+						d = esp.drawTxt(esp.scrapTxt(v), Color3.fromRGB(77, 35, 1)),
+						h = esp.cham(v, "ScrapChams", Color3.fromRGB(77, 35, 1), Color3.fromRGB(170, 170, 170), 0),
+					}
+				end
+			end
+		end
+		for v in esp.scraps do
+			if not v.Parent then
+				esp.clearOne(esp.scraps, v)
+			end
+		end
+	else
+		esp.scrapRoot = nil
+		cleanupEsp("scraps")
+	end
+
+	if _G.RakeTrapESP == true then
+		local debris = ffc(Ws, "Debris")
+		local root = debris and ffc(debris, "Traps")
+		if root then
+			for _, v in kids(root) do
+				if v.Name == "RakeTrapModel" and v:IsA("Model") and not esp.traps[v] then
+					esp.traps[v] = {
+						o = v,
+						d = esp.drawTxt("Rake Trap", Color3.fromRGB(255, 85, 0)),
+						h = esp.cham(v, "RakeTrapChams", Color3.fromRGB(255, 85, 0), Color3.fromRGB(255, 255, 255), 0.3),
+					}
+				end
+			end
+		end
+		for v in esp.traps do
+			if not v.Parent or v.Parent ~= root then
+				esp.clearOne(esp.traps, v)
+			end
+		end
+	else
+		cleanupEsp("traps")
+	end
+end
+
+bind(Ws.DescendantAdded, function(obj)
+	if _G.ScrapESP == true and obj.Name == "Scrap" and obj:IsA("BasePart") then
+		local filter = ffc(Ws, "Filter")
+		local root = filter and ffc(filter, "ScrapSpawns")
+		if root and obj:IsDescendantOf(root) and not esp.scraps[obj] then
+			esp.scrapRoot = root
+			esp.scraps[obj] = {
+				o = obj,
+				d = esp.drawTxt(esp.scrapTxt(obj), Color3.fromRGB(77, 35, 1)),
+				h = esp.cham(obj, "ScrapChams", Color3.fromRGB(77, 35, 1), Color3.fromRGB(170, 170, 170), 0),
+			}
+		end
+	end
+end)
+
+bind(Run.Heartbeat, function(dt)
+	if AllowRunService ~= true then
+		cleanupEsp()
+		return
+	end
+
+	if not esp.espAny() then
+		return
+	end
+
+	esp.scanT += dt
+	esp.updT += dt
+
+	if esp.scanT >= (tonumber(st.espScan) or 0.75) then
+		esp.scanT = 0
+		esp.scanEsp()
+	end
+
+	if esp.updT < 0.08 then
+		return
+	end
+	esp.updT = 0
+
+	if _G.LocationESP == true then
+		local root = esp.getLocFolder()
+		local alive = {}
+		if root then
+			for _, obj in kids(root) do
+				local pos = esp.locPos(obj)
+				if pos then
+					alive[obj] = true
+					local name = esp.locName(obj)
+					local d = esp.locs[obj]
+					if not d then
+						d = esp.drawTxt("[LOCATION] "..name, Color3.fromRGB(255, 136, 0))
+						esp.locs[obj] = d
+					end
+					esp.show(d, pos, "[LOCATION] "..name)
+				end
+			end
+		end
+		for obj, d in esp.locs do
+			if not alive[obj] or not obj.Parent then
+				safeDrawRemove(d)
+				esp.locs[obj] = nil
+			end
+		end
+	else
+		cleanupEsp("locs")
+	end
+
+	if esp.flare then
+		local fl = esp.flare.o
+		local part = fl and (ffcr(fl, "FlareGun") or fl)
+		esp.show(esp.flare.d, _G.FlareGunESP and esp.posOf(part), "Flare Gun")
+	end
+
+	if esp.rake then
+		local rk = esp.rake.o
+		local mons = rk and ffcr(rk, "Monster")
+		local hp = valOf(mons and ffcr(mons, "Health"), nil)
+		if hp == nil and rk then
+			local hum = ffca(rk, "Humanoid")
+			hp = hum and hum.Health or hp
+		end
+		esp.show(esp.rake.d, _G.RakeChams and esp.posOf(ffcr(rk, "Head") or rk), "Rake, Health : "..tostring(hp or "?"))
+	end
+
+	for p, it in esp.players do
+		local ch = it.o
+		local head = ch and ffcr(ch, "Head")
+		local txt = p.Name
+		if _G.PlayerESPShowDistance == true then
+			txt = p.Name.." [Distance Travelled : "..tostring(valOf(ffc(p, "DistanceTravelled"), "?")).."]"
+		end
+		esp.show(it.d, _G.PlayerESP and esp.posOf(head or ch), txt)
+	end
+
+	for box, it in esp.drops do
+		esp.show(it.d, _G.SupplyDropESP and esp.posOf(ffcr(box, "HitBox") or box), "Supply Drop")
+	end
+
+	for v, it in esp.scraps do
+		esp.show(it.d, _G.ScrapESP and esp.posOf(v), esp.scrapTxt(v))
+	end
+
+	for v, it in esp.traps do
+		esp.show(it.d, _G.RakeTrapESP and esp.posOf(v), "Rake Trap")
+	end
+end)
+
+clientBypass.noFall = {
+	haystackSize = Vector3.new(100000, 100000, 100000),
+	applyToken = 0,
+	env = _G,
+}
+
+clientBypass.noFall.getHaystack = function()
+	local ws = game:GetService("Workspace")
+	local filter = ffc(ws, "Filter")
+	return filter and ffc(filter, "Haystack") or nil
+end
+
+clientBypass.noFall.applyHaystack = function(enabled)
+	clientBypass.noFall.applyToken = clientBypass.noFall.applyToken + 1
+	local token = clientBypass.noFall.applyToken
+
+	task.spawn(function()
+		for _ = 1, 40 do
+			if token ~= clientBypass.noFall.applyToken then
+				return
+			end
+
+			local haystack = clientBypass.noFall.getHaystack()
+			if haystack then
+				pcall(function()
+					if clientBypass.noFall.env.__rakeHaystackOriginalSize == nil and haystack.Size ~= clientBypass.noFall.haystackSize then
+						clientBypass.noFall.env.__rakeHaystackOriginalSize = haystack.Size
+					end
+
+					if enabled == true then
+						haystack.Size = clientBypass.noFall.haystackSize
+					elseif clientBypass.noFall.env.__rakeHaystackOriginalSize then
+						haystack.Size = clientBypass.noFall.env.__rakeHaystackOriginalSize
+					end
+				end)
+				return
+			end
+
+			task.wait(0.25)
+		end
+	end)
+end
+
+PlayerTab:CreateToggle({
+	Name = "No Fall Damage",
+	CurrentValue = st.noFall,
+	Flag = "NoFallDamage",
+	Callback = function(state)
+		_G.NoFallDMG = state == true
+		st.noFall = _G.NoFallDMG
+		cfgSet("noFall", st.noFall)
+		clientBypass.noFall.applyHaystack(_G.NoFallDMG)
+	end,
+})
+
+PlayerTab:CreateToggle({
+	Name = "Safe Position Recovery",
+	CurrentValue = st.safeRecover,
+	Flag = "SafePositionRecovery",
+	Callback = function(state)
+		st.safeRecover = state == true
+		_G.RakeSafeRecover = st.safeRecover
+		cfgSet("safeRecover", st.safeRecover)
+		clientBypass.applySafeRecover()
+	end,
+})
+
+PlayerTab:CreateToggle({
+	Name = "No Jump Cooldown",
+	CurrentValue = st.noJumpCooldown,
+	Flag = "NoJumpCooldown",
+	Callback = function(state)
+		st.noJumpCooldown = state == true
+		_G.RakeNoJumpCooldown = st.noJumpCooldown
+		cfgSet("noJumpCooldown", st.noJumpCooldown)
+		clientBypass.applyCH(true)
+	end,
+})
+
+clientBypass.noFall.applyHaystack(st.noFall)
+
+
+clientBypass.lastCam = nil
+clientBypass.lastFov = nil
+clientBypass.fovConns = {}
+
+clientBypass.fovUiMult = function()
+	if st.fovUiFix ~= true or st.fovOn ~= true then
+		return 1
+	end
+	local fov = math.clamp(tonumber(st.fov) or 70, 1, 120)
+	if fov <= 70 then
+		return 1
+	end
+	return math.clamp(math.tan(math.rad(fov) * 0.5) / math.tan(math.rad(70) * 0.5), 1, 2.75)
+end
+
+clientBypass.mulDim2 = function(v, m)
+	return UDim2.new(v.X.Scale * m, math.floor(v.X.Offset * m + 0.5), v.Y.Scale * m, math.floor(v.Y.Offset * m + 0.5))
+end
+
+clientBypass.isTextGui = function(obj)
+	return obj and (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox"))
+end
+
+clientBypass.patchFovUiText = function(obj, rec, m)
+	if not rec.text then
+		rec.text = setmetatable({}, { __mode = "k" })
+	end
+	for _, ui in desc(obj) do
+		if clientBypass.isTextGui(ui) then
+			local tr = rec.text[ui]
+			if not tr then
+				tr = { size = ui.TextSize, scaled = ui.TextScaled }
+				rec.text[ui] = tr
+			end
+			pcall(function()
+				if tr.scaled == true then
+					ui.TextScaled = true
+				else
+					ui.TextScaled = false
+					ui.TextSize = math.clamp(math.floor((tonumber(tr.size) or ui.TextSize or 14) * m + 0.5), 8, 72)
+				end
+			end)
+		end
+	end
+end
+
+function clientBypass.patchFovUi(obj)
+	if not obj or not obj.Parent or not obj:IsA("BillboardGui") then
+		return false
+	end
+	local rec = clientBypass.fovUiCache[obj]
+	if not rec then
+		rec = { size = obj.Size }
+		clientBypass.fovUiCache[obj] = rec
+	end
+	local m = clientBypass.fovUiMult()
+	pcall(function()
+		obj.Size = clientBypass.mulDim2(rec.size, m)
+	end)
+	clientBypass.patchFovUiText(obj, rec, m)
+	return true
+end
+
+function clientBypass.applyFovUiFix(scan)
+	if st.fovUiFix ~= true then
+		return 0
+	end
+	local n = 0
+	for obj in clientBypass.fovUiCache do
+		if obj and obj.Parent then
+			if clientBypass.patchFovUi(obj) then
+				n += 1
+			end
+		else
+			clientBypass.fovUiCache[obj] = nil
+		end
+	end
+	if scan == true and clientBypass.fovUiScanned ~= true then
+		clientBypass.fovUiScanned = true
+		for _, root in { Ws, clientBypass.getPlayerGui() } do
+			for _, obj in desc(root) do
+				if obj:IsA("BillboardGui") and clientBypass.patchFovUi(obj) then
+					n += 1
+				end
+			end
+		end
+	end
+	return n
+end
+
+function clientBypass.restoreFovUiFix()
+	for obj, rec in clientBypass.fovUiCache do
+		if obj and obj.Parent and rec and rec.size then
+			pcall(function()
+				obj.Size = rec.size
+			end)
+		end
+		if rec and rec.text then
+			for ui, tr in rec.text do
+				if ui and ui.Parent and tr then
+					pcall(function()
+						ui.TextScaled = tr.scaled == true
+						ui.TextSize = tr.size or ui.TextSize
+					end)
+				end
+			end
+		end
+	end
+	clientBypass.fovUiCache = setmetatable({}, { __mode = "k" })
+	clientBypass.fovUiScanned = false
+end
+
+clientBypass.wipeFovConns = function()
+	for i = #clientBypass.fovConns, 1, -1 do
+		local c = clientBypass.fovConns[i]
+		if c then
+			pcall(function()
+				c:Disconnect()
+			end)
+		end
+		clientBypass.fovConns[i] = nil
+	end
+end
+
+clientBypass.applyFov = function(force)
+	if not AllowRunService or st.fovOn ~= true then
+		return
+	end
+	local cam = Ws.CurrentCamera or workspace.CurrentCamera
+	if not cam then
+		return
+	end
+	local num = math.clamp(tonumber(st.fov) or 70, 1, 120)
+	if force or clientBypass.lastCam ~= cam or clientBypass.lastFov ~= num or cam.FieldOfView ~= num then
+		clientBypass.lastCam = cam
+		clientBypass.lastFov = num
+		pcall(function()
+			cam.FieldOfView = num
+		end)
+		pcall(clientBypass.applyFovUiFix, true)
+	end
+end
+
+clientBypass.bindFovCam = function(cam)
+	clientBypass.wipeFovConns()
+	if not cam then
+		return
+	end
+	clientBypass.lastCam = nil
+	local ok, c = pcall(function()
+		return cam:GetPropertyChangedSignal("FieldOfView"):Connect(function()
+			if AllowRunService == true and st.fovOn == true then
+				task.defer(function()
+					clientBypass.applyFov(true)
+				end)
+			end
+		end)
+	end)
+	if ok and c then
+		clientBypass.fovConns[#clientBypass.fovConns + 1] = c
+	end
+	clientBypass.applyFov(true)
+end
+
+clientBypass.applySpeed = function(force)
+	if not AllowRunService or st.spdOn ~= true then
+		return
+	end
+	local hum = getHum()
+	if not hum or not hum.Parent then
+		return
+	end
+	local spd = math.clamp(tonumber(st.spd) or 16, 0, 30)
+	if force or hum.WalkSpeed ~= spd then
+		pcall(function()
+			hum.WalkSpeed = spd
+		end)
+	end
+end
+
+clientBypass.onChar = function(ch)
+	wipeCharConns()
+	curChar = ch
+	curHum = nil
+	curHrp = nil
+	clientBypass.lastSafe = nil
+	if not ch then
+		return
+	end
+	if st.infStamina == true or st.infNight == true then
+		queueInfTabs(14)
+	end
+	task.spawn(function()
+		local hum = ffca(ch, "Humanoid") or ch:WaitForChild("Humanoid", 10)
+		if hum then
+			curHum = hum
+			clientBypass.applySpeed(true)
+			pcall(clientBypass.applyCharBypasses)
+			pcall(clientBypass.applySafeRecover)
+			if st.infStamina == true or st.infNight == true then
+				applyInfTabs(true)
+			end
+			bindChar(hum:GetPropertyChangedSignal("WalkSpeed"), function()
+				clientBypass.applySpeed(true)
+			end)
+		end
+	end)
+end
+
+clientBypass.lp = Plrs.LocalPlayer
+if clientBypass.lp then
+	if clientBypass.lp.Character then
+		task.defer(clientBypass.onChar, clientBypass.lp.Character)
+	end
+	bind(clientBypass.lp.CharacterAdded, clientBypass.onChar)
+end
+
+PlayerTab:CreateSlider({
+	Name = "Field Of View",
+	Range = {1, 120},
+	Increment = 1,
+	CurrentValue = st.fov,
+	Flag = "FOV",
+	Callback = function(state)
+		st.fov = math.clamp(tonumber(state) or st.fov, 1, 120)
+		_G.FieldOfView = st.fov
+		cfgSet("fov", st.fov)
+		clientBypass.applyFov(true)
+		clientBypass.applyFovUiFix(true)
+	end,
+})
+
+PlayerTab:CreateToggle({
+	Name = "Toggle FOV",
+	CurrentValue = st.fovOn,
+	Flag = "tglFOV",
+	Callback = function(state)
+		st.fovOn = state == true
+		_G.enableFOV = st.fovOn
+		cfgSet("fovOn", st.fovOn)
+		clientBypass.lastCam = nil
+		clientBypass.bindFovCam(Ws.CurrentCamera or workspace.CurrentCamera)
+		clientBypass.applyFov(true)
+		if st.fovOn ~= true then
+			clientBypass.restoreFovUiFix()
+		end
+	end,
+})
+
+PlayerTab:CreateToggle({
+	Name = "Fix High FOV UI Scale",
+	CurrentValue = st.fovUiFix,
+	Flag = "FixHighFovUiScale",
+	Callback = function(state)
+		st.fovUiFix = state == true
+		_G.RakeFovUiFix = st.fovUiFix
+		cfgSet("fovUiFix", st.fovUiFix)
+		if st.fovUiFix then
+			clientBypass.applyFovUiFix(true)
+		else
+			clientBypass.restoreFovUiFix()
+		end
+	end,
+})
+
+PlayerTab:CreateSlider({
+	Name = "WalkSpeed",
+	Range = {0, 30},
+	Increment = 1,
+	CurrentValue = st.spd,
+	Flag = "walkspeed",
+	Callback = function(state)
+		st.spd = math.clamp(tonumber(state) or st.spd, 0, 30)
+		_G.WalkSpeedd = st.spd
+		cfgSet("spd", st.spd)
+		clientBypass.applySpeed(true)
+	end,
+})
+
+PlayerTab:CreateToggle({
+	Name = "Toggle WalkSpeed",
+	CurrentValue = st.spdOn,
+	Flag = "tglSpeed",
+	Callback = function(state)
+		st.spdOn = state == true
+		_G.enableSpeed = st.spdOn
+		cfgSet("spdOn", st.spdOn)
+		clientBypass.applySpeed(true)
+	end,
+})
+
+
+ExploitsTab:CreateToggle({
+	Name = "Insta Open SupplyDrop",
+	CurrentValue = st.instaDrop,
+	Flag = "InstaOpenSupplyDrop",
+	Callback = function(state)
+		_G.InstaOpenSupplyDrop = state == true
+		st.instaDrop = _G.InstaOpenSupplyDrop
+		cfgSet("instaDrop", st.instaDrop)
+	end,
+})
+
+ExploitsTab:CreateToggle({
+	Name = "Insta Close RakeTrap",
+	CurrentValue = st.instaTrap,
+	Flag = "InstaCloseRakeTrap",
+	Callback = function(state)
+		_G.InstaCloseRakeTrap = state == true
+		st.instaTrap = _G.InstaCloseRakeTrap
+		cfgSet("instaTrap", st.instaTrap)
+	end,
+})
+
+ExploitsTab:CreateToggle({
+	Name = "Known Object Prompt Bypass",
+	CurrentValue = st.knownPromptBypass,
+	Flag = "KnownObjectPromptBypass",
+	Callback = function(state)
+		st.knownPromptBypass = state == true
+		_G.RakeKnownPromptBypass = st.knownPromptBypass
+		cfgSet("knownPromptBypass", st.knownPromptBypass)
+		if st.knownPromptBypass then
+			local n = clientBypass.applyKnownGamePrompts()
+			Obsidian:Notify({
+				Title = "Known Prompts",
+				Content = "Unlocked known prompts: " .. tostring(n),
+				Duration = 2,
+				Image = 4483362458,
+			})
+		end
+	end,
+})
+
+-- ================= 新增：自动拾取信号枪 UI 开关 =================
+-- 注意：此开关会调用下面定义的 setFlarePickupEnabled 函数
+local flarePickupEnabled = false
+function setFlarePickupEnabled(enabled)
+	flarePickupEnabled = enabled == true
+	if flarePickupEnabled then
+		-- 扫描并添加到队列的逻辑在下面模块中自动处理
+		if type(scanExistingFlares) == "function" then
+			scanExistingFlares()
+		end
+	else
+		if type(flarePickup) == "table" then
 			flarePickup.queue = {}
 			flarePickup.busy = false
 		end
 	end
+end
 
-	task.spawn(startFlareWatcher)
-	-- ==============================================
+ExploitsTab:CreateToggle({
+	Name = "Auto Pickup Flare Gun",
+	CurrentValue = st.autoPickupFlare,
+	Flag = "AutoPickupFlare",
+	Callback = function(state)
+		st.autoPickupFlare = state == true
+		cfgSet("autoPickupFlare", st.autoPickupFlare)
+		setFlarePickupEnabled(st.autoPickupFlare)
+	end,
+})
+-- ================================================================
 
+ExploitsTab:CreateToggle({
+	Name = "Prompt Bypass",
+	CurrentValue = st.promptBypass,
+	Flag = "PromptBypass",
+	Callback = function(state)
+		st.promptBypass = state == true
+		_G.RakePromptBypass = st.promptBypass
+		cfgSet("promptBypass", st.promptBypass)
+		if st.promptBypass then
+			local n = clientBypass.applyPromptBypass()
+			Obsidian:Notify({
+				Title = "Prompt Bypass",
+				Content = "Unlocked prompts: " .. tostring(n),
+				Duration = 2,
+				Image = 4483362458,
+			})
+		end
+	end,
+})
+
+ExploitsTab:CreateSlider({
+	Name = "Prompt Distance",
+	Range = {5, 100},
+	Increment = 1,
+	CurrentValue = st.promptDistance,
+	Flag = "PromptBypassDistance",
+	Callback = function(v)
+		st.promptDistance = math.clamp(tonumber(v) or 25, 5, 100)
+		cfgSet("promptDistance", st.promptDistance)
+		if st.promptBypass then
+			clientBypass.applyKnownPromptBypass()
+		end
+	end,
+})
+
+
+ExploitsTab:CreateButton({
+	Name = "Unlock Prompts Once",
+	Callback = function()
+		local old = st.promptBypass
+		st.promptBypass = true
+		local n = clientBypass.applyPromptBypass()
+		st.promptBypass = old
+		Obsidian:Notify({
+			Title = "Prompts",
+			Content = "Unlocked prompts: " .. tostring(n),
+			Duration = 2,
+			Image = 4483362458,
+		})
+	end,
+})
+
+ExploitsTab:CreateButton({
+	Name = "StartRemote Play",
+	Callback = function()
+		local ok, res = clientBypass.invokeStartRemote("Play")
+		if ok then
+			setScriptGlobal("IsLoading", nil)
+			setScriptGlobal("SLoaded", true)
+			clientBypass.restoreCoreGui()
+		end
+		Obsidian:Notify({
+			Title = "StartRemote",
+			Content = ok and ("Play returned: " .. tostring(res)) or "StartRemote was not available.",
+			Duration = 3,
+			Image = 4483362458,
+		})
+	end,
+})
+
+ExploitsTab:CreateButton({
+	Name = "StartRemote LoadData",
+	Callback = function()
+		local ok, res = clientBypass.invokeStartRemote("LoadData")
+		Obsidian:Notify({
+			Title = "StartRemote",
+			Content = ok and ("LoadData returned: " .. tostring(res)) or "StartRemote was not available.",
+			Duration = 3,
+			Image = 4483362458,
+		})
+	end,
+})
+
+ExploitsTab:CreateButton({
+	Name = "StartRemote JoinOld",
+	Callback = function()
+		local ok, res = clientBypass.invokeStartRemote("JoinOld")
+		Obsidian:Notify({
+			Title = "StartRemote",
+			Content = ok and ("JoinOld returned: " .. tostring(res)) or "StartRemote was not available.",
+			Duration = 3,
+			Image = 4483362458,
+		})
+	end,
+})
+
+clientBypass.promptT = 1
+clientBypass.promptBypassT = 1
+clientBypass.clientBypassT = 1
+clientBypass.knownPromptT = 1
+clientBypass.soundT = 1
+clientBypass.lightT = 5
+clientBypass.deathMsgT = 2
+clientBypass.fastBypassT = 0
+
+bind(Run.Heartbeat, function(dt)
+	if AllowRunService ~= true then
+		return
+	end
+	clientBypass.promptT += dt
+	if clientBypass.promptT < 0.35 then
+		return
+	end
+	clientBypass.promptT = 0
+	pcall(function()
+		fastDoorLever()
+		if _G.InstaOpenSupplyDrop == true then
+			eachDrop(fastDrop)
+		end
+		if _G.InstaCloseRakeTrap == true then
+			eachTrap(fastTrap)
+		end
+	end)
+end)
+
+bind(Run.Heartbeat, function(dt)
+	if AllowRunService ~= true then
+		return
+	end
+	clientBypass.promptBypassT += dt
+	clientBypass.clientBypassT += dt
+	clientBypass.soundT += dt
+	clientBypass.lightT += dt
+	clientBypass.knownPromptT += dt
+	clientBypass.deathMsgT += dt
+	clientBypass.chT += dt
+	clientBypass.stamScanT += dt
+	if (st.infStamina == true or st.infNight == true) and clientBypass.stamScanT >= 12 then
+		clientBypass.stamScanT = 0
+		pcall(clientBypass.applyStaminaModuleBypass)
+	end
+	if st.promptBypass == true and clientBypass.promptInitScan ~= true then
+		clientBypass.promptInitScan = true
+		clientBypass.promptBypassT = 0
+		pcall(clientBypass.applyPromptBypass)
+	elseif st.promptBypass ~= true then
+		clientBypass.promptInitScan = false
+	elseif clientBypass.promptBypassT >= 5 then
+		clientBypass.promptBypassT = 0
+		pcall(clientBypass.applyKnownPromptBypass)
+	end
+	if clientBypass.knownPromptT >= 1.25 then
+		clientBypass.knownPromptT = 0
+		pcall(clientBypass.applyKnownGamePrompts)
+		pcall(clientBypass.applyClientPopupBypasses)
+	end
+	if clientBypass.clientBypassT >= 0.75 then
+		clientBypass.clientBypassT = 0
+		pcall(clientBypass.applyMotionBlurBypass)
+		pcall(clientBypass.applyMenuFxBypass)
+		pcall(clientBypass.applyDeathFxBypass)
+		pcall(clientBypass.applyIntroBypass)
+		pcall(clientBypass.applyGameSettingOverrides)
+		pcall(clientBypass.applyPromptUiBypass)
+		pcall(clientBypass.applyLookFreeze)
+		pcall(clientBypass.cleanupPromptModals)
+		pcall(clientBypass.applyDeviceSpoof)
+		pcall(clientBypass.applyCharBypasses)
+		pcall(clientBypass.applySafeRecover)
+		pcall(clientBypass.applyFullbright)
+		pcall(clientBypass.applyClientPopupBypasses)
+		pcall(clientBypass.applyFovUiFix, false)
+		pcall(clientBypass.removeIntroClones)
+		pcall(clientBypass.forceCoreParts)
+		pcall(clientBypass.applyStaminaSignals)
+		if clientBypass.chBootScan ~= true then
+			clientBypass.chBootScan = true
+			pcall(clientBypass.applyCH, true)
+		else
+			pcall(clientBypass.applyCH, false)
+		end
+	end
+	if clientBypass.deathMsgT >= 2 then
+		clientBypass.deathMsgT = 0
+		pcall(clientBypass.applyDeathMessageBypass)
+	end
+	if clientBypass.lightT >= 5 then
+		clientBypass.lightT = 0
+		pcall(clientBypass.applyLightToolBypasses)
+	end
+	if clientBypass.soundT >= 2.5 then
+		clientBypass.soundT = 0
+		pcall(clientBypass.applySoundBypasses)
+	end
+end)
+
+bind(Run.Heartbeat, function()
+	if AllowRunService ~= true then
+		return
+	end
+	if st.fovOn == true then
+		clientBypass.applyFov(false)
+	end
+	if _G.NoFog == true then
+		setFogOff()
+	end
+	pcall(clientBypass.applySafeRecover)
+	pcall(clientBypass.applyCharBypasses)
+	pcall(clientBypass.applyFullbright)
+	pcall(clientBypass.applyCH, false)
+end)
+
+clientBypass.bindFovCam(Ws.CurrentCamera or workspace.CurrentCamera)
+pcall(clientBypass.applyFovUiFix, true)
+pcall(clientBypass.fetchRootModule)
+pcall(clientBypass.applyStaminaModuleBypass)
+pcall(clientBypass.applyStaminaSignals)
+
+pcall(function()
+	bind(Ws:GetPropertyChangedSignal("CurrentCamera"), function()
+		task.defer(function()
+			clientBypass.bindFovCam(Ws.CurrentCamera or workspace.CurrentCamera)
+		end)
+	end)
+end)
+
+clientBypass.spdT = 0
+
+bind(Run.Heartbeat, function(dt)
+	if AllowRunService ~= true or st.spdOn ~= true then
+		return
+	end
+	clientBypass.spdT += dt
+	if clientBypass.spdT >= 0.5 then
+		clientBypass.spdT = 0
+		clientBypass.applySpeed(false)
+	end
+end)
+
+bind(Run.Heartbeat, function(dt)
+	if AllowRunService ~= true or (st.infStamina ~= true and st.infNight ~= true) then
+		return
+	end
+
+	infSys.fast += dt
+	infSys.scan += dt
+	if infSys.fast < 0.75 then
+		return
+	end
+
+	infSys.fast = 0
+	applyInfTabs(false)
+	pcall(clientBypass.applyStaminaSignals)
+end)
+
+function DestroyUI()
+	AllowRunService = false
+	saveNow()
+	wipeCharConns()
+	clientBypass.wipeFovConns()
+	clientBypass.restoreMovementPatches()
+	clientBypass.restoreStaminaModules()
+	clientBypass.restoreMainClientModules()
+	clientBypass.restoreStaminaSignals()
+	clientBypass.restoreHiddenUi()
+	wipeFog()
+	if cleanupEsp then
+		cleanupEsp()
+	end
+	wipeConns()
+	safeDestroy(FreeCamPart)
+	safeDestroy(HidePartHightLight)
+	safeDestroy(HidePart)
+	safeDestroy(infoBubble)
+	infoBubble = nil
+	infoRoot = nil
+	infoLbl = nil
+	genv.RakeGui = false
+	pcall(function()
+		Obsidian:Destroy()
+	end)
+end
+
+clientBypass.RakeTargetCounter = {
+	Set = function(_, txt)
+		setInfoTarget(txt)
+	end,
+}
+clientBypass.TimeUntilDayCounter = {
+	Set = function(_, txt)
+		setInfoTime(txt)
+	end,
+}
+clientBypass.PowerCounter = {
+	Set = function(_, txt)
+		setInfoPower(txt)
+	end,
+}
+
+-- update time until day label
+
+clientBypass.infoT = 1
+
+bind(Run.Heartbeat, function(dt)
+	if AllowRunService ~= true then
+		return
+	end
+	clientBypass.infoT += dt
+	if clientBypass.infoT < 1 then
+		return
+	end
+	clientBypass.infoT = 0
+	pcall(function()
+		local sec = fmtTime(valOf(ffc(Rep, "Timer"), 0))
+		if valOf(ffc(Rep, "Night"), false) == true then
+			clientBypass.TimeUntilDayCounter:Set("Time Until Day : "..sec)
+		else
+			clientBypass.TimeUntilDayCounter:Set("Time Until Night : "..sec)
+		end
+		local powerValues = ffc(Rep, "PowerValues")
+		local powerLevel = valOf(powerValues and ffc(powerValues, "PowerLevel"), 1000)
+
+		clientBypass.PowerCounter:Set("Power : "..fmtPower(powerLevel).."%")
+	end)
+end)
+
+-- update rakes targetlabel
+
+
+clientBypass.tarT = 0.25
+
+bind(Run.Heartbeat, function(dt)
+	if AllowRunService ~= true then
+		return
+	end
+	clientBypass.tarT += dt
+	if clientBypass.tarT < 0.25 then
+		return
+	end
+	clientBypass.tarT = 0
+	pcall(function()
+		local rk = ffcr(Ws, "Rake")
+		local tv = ffcr(rk, "TargetVal")
+		local val = tv and tv.Value
+		if val and val.Parent then
+			clientBypass.RakeTargetCounter:Set("Rake's Target : " .. tostring(val.Parent))
+		else
+			clientBypass.RakeTargetCounter:Set("Rake's Target : none")
+		end
+	end)
+end)
+
+
+-- alert if blood hour
+
+clientBypass.bhT = 1
+
+bind(Run.Heartbeat, function(dt)
+	if AllowRunService ~= true then
+		return
+	end
+	clientBypass.bhT += dt
+	if clientBypass.bhT < 1 then
+		return
+	end
+	clientBypass.bhT = 0
+	local bh = ffc(Rep, "InitiateBloodHour")
+	if bh and bh.Value == true then
+		Obsidian:Notify({
+			Title = "ALERT",
+			Content = "HOLY JESUS BLOOD HOUR IS COMING NOW",
+			Duration = 5,
+			Image = 4483362458,
+		})
+		bh.Value = false
+	end
+end)
+
+if canCfg then
+	pcall(function()
+		Obsidian:LoadConfiguration()
+	end)
+end
+end
+
+-- ================= 自动医疗包（血量低于阈值自动使用） =================
+local autoMed = {
+	enabled = false,
+	threshold = 0.4,
+	cooldown = 0,
+	cooldownTime = 3,
+	medkitNames = { "Medkit", "医疗包", "FirstAid", "Bandage", "MedKit", "Med", "Heal" },
+}
+
+local function getHealthPercent()
+	local hum = getHum()
+	if hum and hum.Health and hum.MaxHealth then
+		return hum.Health / hum.MaxHealth
+	end
+	return 1
+end
+
+local function findMedkitTool()
+	local lp = Plrs.LocalPlayer
+	if not lp then return nil end
+	local char = lp.Character
+	if char then
+		for _, tool in ipairs(char:GetChildren()) do
+			if tool:IsA("Tool") then
+				for _, medName in ipairs(autoMed.medkitNames) do
+					if string.find(tool.Name, medName, 1, true) then return tool end
+				end
+			end
+		end
+	end
+	local backpack = lp:FindFirstChild("Backpack")
+	if backpack then
+		for _, tool in ipairs(backpack:GetChildren()) do
+			if tool:IsA("Tool") then
+				for _, medName in ipairs(autoMed.medkitNames) do
+					if string.find(tool.Name, medName, 1, true) then return tool end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local function useMedkit(tool)
+	if not tool then return false end
+	if tool.Parent == Plrs.LocalPlayer.Character then
+		pcall(function() tool:Activate() end)
+		return true
+	end
+	local hum = getHum()
+	if hum then
+		pcall(function()
+			hum:EquipTool(tool)
+			task.wait(0.05)
+			tool:Activate()
+		end)
+		return true
+	end
+	return false
+end
+
+local function tryUseMedkit()
+	if not autoMed.enabled then return end
+	if autoMed.cooldown > 0 then return end
+	if getHealthPercent() >= autoMed.threshold then return end
+	local medkit = findMedkitTool()
+	if medkit and useMedkit(medkit) then
+		autoMed.cooldown = autoMed.cooldownTime
+		if type(Obsidian) == "table" and Obsidian.Notify then
+			Obsidian:Notify({
+				Title = "Auto Med",
+				Content = "Used medkit",
+				Duration = 1,
+			})
+		end
+	end
+end
+
+local function updateCooldown(dt)
+	if autoMed.cooldown > 0 then
+		autoMed.cooldown = autoMed.cooldown - dt
+		if autoMed.cooldown < 0 then autoMed.cooldown = 0 end
+	end
+end
+
+local function startAutoMed()
+	local Run = ClonedService("RunService")
+	bind(Run.Heartbeat, function(dt)
+		if AllowRunService ~= true then return end
+		updateCooldown(dt)
+		if math.floor(tick() * 2) % 2 == 0 then
+			tryUseMedkit()
+		end
+	end)
+end
+
+function setAutoMedEnabled(enabled)
+	autoMed.enabled = enabled == true
+	if not autoMed.enabled then autoMed.cooldown = 0 end
+end
+
+function setAutoMedThreshold(value)
+	autoMed.threshold = math.clamp(value / 100, 0.1, 0.9)
+end
+
+-- 从配置同步初始值
+if st.autoMed then setAutoMedEnabled(st.autoMed) end
+if st.medThreshold then setAutoMedThreshold(st.medThreshold) end
+
+task.spawn(startAutoMed)
+
+-- 添加 UI 控件到 PlayerTab
+task.spawn(function()
+	for i = 1, 10 do
+		if type(PlayerTab) == "table" and type(PlayerTab.CreateToggle) == "function" then
+			break
+		end
+		task.wait(0.5)
+	end
+	if type(PlayerTab) ~= "table" then
+		return
+	end
+
+	PlayerTab:CreateToggle({
+		Name = "Auto Use Medkit",
+		CurrentValue = st.autoMed == true,
+		Flag = "AutoMed",
+		Callback = function(state)
+			st.autoMed = state == true
+			cfgSet("autoMed", st.autoMed)
+			setAutoMedEnabled(st.autoMed)
+		end,
+	})
+
+	PlayerTab:CreateSlider({
+		Name = "Medkit Health Threshold",
+		Range = {30, 70},
+		Increment = 5,
+		CurrentValue = st.medThreshold or 40,
+		Flag = "MedThreshold",
+		Callback = function(v)
+			st.medThreshold = math.clamp(tonumber(v) or 40, 30, 70)
+			cfgSet("medThreshold", st.medThreshold)
+			setAutoMedThreshold(st.medThreshold)
+		end,
+	})
+end)
+-- ==============================================
+
+-- ================= 自动拾取信号枪（定时扫描 + 间隔传送版） =================
+local flarePickup = {
+	enabled = false,
+	targetName = "FlareGunPickUp",
+	offset = Vector3.new(0, 0.8, 0),
+	moveDistance = 2.5,
+	moveSpeed = 20,
+	moveTime = 0.3,
+	returnDelay = 0.5,
+	hitboxScale = 2.0,
+	scanInterval = 1,
+	pickupInterval = 2,
+	lastPickupTime = 0,
+	busy = false,
+}
+
+local function getFlarePosition(flare)
+	if not flare or not flare.Parent then return nil end
+	local primary = flare.PrimaryPart
+	if primary and primary:IsA("BasePart") then return primary.Position end
+	for _, child in ipairs(flare:GetChildren()) do
+		if child:IsA("BasePart") then return child.Position end
+	end
+	local ok, pos = pcall(function() return flare:GetPivot().Position end)
+	return ok and pos or nil
+end
+
+local function findHitbox(flare)
+	for _, child in ipairs(flare:GetDescendants()) do
+		if child:IsA("BasePart") and (child.Name == "Hitbox" or child.Name == "HitBox" or child.Name == "Handle") then
+			return child
+		end
+	end
+	for _, child in ipairs(flare:GetDescendants()) do
+		if child:IsA("BasePart") then return child end
+	end
+	return nil
+end
+
+local function tryPrompt(flare, player)
+	for _, child in ipairs(flare:GetDescendants()) do
+		if child:IsA("ProximityPrompt") then
+			pcall(function() child:Prompt(player) end)
+			return true
+		end
+	end
+	return false
+end
+
+local function performPickup(flare)
+	if not flare or not flare.Parent then return false end
+	local flarePos = getFlarePosition(flare)
+	if not flarePos then return false end
+
+	local hitbox = findHitbox(flare)
+	local originalSize = nil
+	local originalCanTouch = nil
+	if hitbox then
+		originalSize = hitbox.Size
+		originalCanTouch = hitbox.CanTouch
+		hitbox.Size = originalSize * flarePickup.hitboxScale
+		hitbox.CanTouch = true
+		hitbox.CanQuery = true
+	end
+
+	local hrp = GET_HRP()
+	local hum = getHum()
+	if not hrp or not hum then
+		if hitbox and originalSize then
+			hitbox.Size = originalSize
+			hitbox.CanTouch = originalCanTouch
+		end
+		return false
+	end
+
+	local originalCF = hrp.CFrame
+	local targetPos = flarePos + flarePickup.offset
+	local oldSpeed = hum.WalkSpeed
+	local oldAutoRotate = hum.AutoRotate
+
+	local success = pcall(function()
+		SET_HRP_CFRAME(CFrame.new(targetPos))
+		task.wait(0.1)
+
+		local prompted = tryPrompt(flare, Plrs.LocalPlayer)
+		if not prompted then
+			hum.AutoRotate = false
+			hum.WalkSpeed = flarePickup.moveSpeed
+			local forward = hrp.CFrame.LookVector
+			local targetMove = hrp.Position + forward * flarePickup.moveDistance
+			hum:MoveTo(targetMove)
+			task.wait(flarePickup.moveTime)
+
+			local backPos = hrp.Position - forward * flarePickup.moveDistance
+			hum:MoveTo(backPos)
+			task.wait(flarePickup.moveTime)
+
+			hum.WalkSpeed = oldSpeed
+			hum.AutoRotate = oldAutoRotate
+			task.wait(flarePickup.returnDelay)
+		end
+
+		if hrp and hrp.Parent then
+			SET_HRP_CFRAME(originalCF)
+		end
+	end)
+
+	if hitbox and originalSize then
+		pcall(function()
+			hitbox.Size = originalSize
+			if originalCanTouch ~= nil then hitbox.CanTouch = originalCanTouch end
+		end)
+	end
+
+	if not success then
+		pcall(function()
+			if hrp and hrp.Parent then SET_HRP_CFRAME(originalCF) end
+			if hum then
+				hum.WalkSpeed = oldSpeed
+				hum.AutoRotate = oldAutoRotate
+			end
+		end)
+		return false
+	end
+	return true
+end
+
+local function scanAndPickup()
+	if not flarePickup.enabled then return end
+	if flarePickup.busy then return end
+
+	local now = tick()
+	if now - flarePickup.lastPickupTime < flarePickup.pickupInterval then
+		return
+	end
+
+	local ws = game:GetService("Workspace")
+	local closest = nil
+	local closestDist = math.huge
+	local hrp = GET_HRP()
+	if not hrp then return end
+
+	for _, obj in ipairs(ws:GetDescendants()) do
+		if obj.Name == flarePickup.targetName then
+			local pos = getFlarePosition(obj)
+			if pos then
+				local dist = (pos - hrp.Position).Magnitude
+				if dist < closestDist then
+					closestDist = dist
+					closest = obj
+				end
+			end
+		end
+	end
+
+	if closest then
+		flarePickup.busy = true
+		local success = pcall(performPickup, closest)
+		flarePickup.busy = false
+		if success then
+			flarePickup.lastPickupTime = tick()
+		end
+	end
+end
+
+local function startScanner()
+	local Run = ClonedService("RunService")
+	local lastScanTime = 0
+	bind(Run.Heartbeat, function(dt)
+		if AllowRunService ~= true then return end
+		if not flarePickup.enabled then return end
+		local now = tick()
+		if now - lastScanTime >= flarePickup.scanInterval then
+			lastScanTime = now
+			scanAndPickup()
+		end
+	end)
+end
+
+function setFlarePickupEnabled(enabled)
+	flarePickup.enabled = enabled == true
+	if not flarePickup.enabled then
+		flarePickup.busy = false
+		flarePickup.lastPickupTime = 0
+	end
+end
+
+-- 从配置同步初始状态
+if st and st.autoPickupFlare ~= nil then
+	setFlarePickupEnabled(st.autoPickupFlare)
+end
+
+task.spawn(startScanner)
+-- ==============================================
 	clientBypass.buildUi()
 end
+-- ================= 运行时UI中文化（自动翻译） =================
+local function translateUI()
+    local translations = {
+        ["Project [The Rake]"] = "项目：镰鼬",
+        ["Sleepy Hub"] = "Sleepy 中心",
+        ["Main"] = "主页",
+        ["Player"] = "玩家",
+        ["Client"] = "客户端",
+        ["Exploits"] = "功能",
+        ["Settings"] = "设置",
+        ["Radio"] = "电台",
+        ["Rake Killaura"] = "镰鼬自动攻击",
+        ["Killaura Range"] = "攻击范围",
+        ["Killaura Delay"] = "攻击间隔",
+        ["Killaura Auto Equip"] = "自动装备电击棒",
+        ["Toggle Killaura"] = "开关自动攻击",
+        ["Inf Stamina"] = "无限体力",
+        ["Inf Night Vision"] = "无限夜视",
+        ["No Fall Damage"] = "无摔落伤害",
+        ["Safe Position Recovery"] = "安全位置恢复",
+        ["No Jump Cooldown"] = "无跳跃冷却",
+        ["Field Of View"] = "视野角度",
+        ["Toggle FOV"] = "启用视野修改",
+        ["Fix High FOV UI Scale"] = "修复高视野UI缩放",
+        ["WalkSpeed"] = "移动速度",
+        ["Toggle WalkSpeed"] = "启用移速修改",
+        ["Auto Pickup Flare Gun"] = "自动拾取信号枪",
+        ["Auto Use Medkit"] = "自动使用医疗包",
+        ["Medkit Health Threshold"] = "医疗包使用血量阈值",
+        ["Rake Chams"] = "镰鼬高亮",
+        ["Player ESP"] = "玩家透视",
+        ["Show Distance Travelled"] = "显示移动距离",
+        ["Flare Gun ESP"] = "信号枪透视",
+        ["SupplyDrop ESP"] = "空投透视",
+        ["Location ESP"] = "地点透视",
+        ["Scrap ESP"] = "废料透视",
+        ["Rake Trap ESP"] = "陷阱透视",
+        ["Bring Scraps"] = "把废料拉到身边",
+        ["No Fog"] = "无雾",
+        ["Bypass Death / Intro FX"] = "跳过死亡/开场特效",
+        ["Disable Motion Blur"] = "禁用动态模糊",
+        ["Disable Esc/Menu FX"] = "禁用菜单特效",
+        ["Intro Bypass / Restore UI"] = "跳过开场/恢复界面",
+        ["Restore CoreGui"] = "恢复核心界面",
+        ["Remove Intro GUI"] = "移除开场界面",
+        ["Disable Shadows"] = "禁用阴影",
+        ["Force Chat Enabled"] = "强制启用聊天",
+        ["Mute Game Music"] = "静音游戏音乐",
+        ["Mute Chase Music"] = "静音追逐音乐",
+        ["Force Nametags"] = "强制显示名字",
+        ["Force Sixth Sense"] = "强制第六感",
+        ["Mute Movement Loops"] = "静音移动音效",
+        ["Mute Footsteps"] = "静音脚步声",
+        ["Mute Jump/Land Sounds"] = "静音跳跃/落地声",
+        ["Mute Water/Freefall Sounds"] = "静音水花/坠落声",
+        ["Mute Death Sounds"] = "静音死亡音效",
+        ["Hide Prompt UI"] = "隐藏交互提示UI",
+        ["Freeze Look Angles"] = "锁定视角角度",
+        ["Hide Death Messages"] = "隐藏死亡信息",
+        ["Block Favorite Prompts"] = "屏蔽收藏提示",
+        ["Block Group Prompts"] = "屏蔽组队提示",
+        ["Force PC Device"] = "强制PC设备",
+        ["Flashlight No Shadows"] = "手电筒无阴影",
+        ["Flashlight Boost"] = "手电筒增强",
+        ["Block Menu Reopen"] = "阻止菜单重新打开",
+        ["Force Backpack Enabled"] = "强制显示背包",
+        ["Force Mouse Icon"] = "强制鼠标图标",
+        ["Force Topbar Enabled"] = "强制显示顶栏",
+        ["Disable Visual FX"] = "禁用视觉特效",
+        ["Disable Camera Shake"] = "禁用镜头抖动",
+        ["Disable Camera Bobbing"] = "禁用镜头晃动",
+        ["Hide Location Popups"] = "隐藏地点弹窗",
+        ["Hide Scrap Popups"] = "隐藏废料弹窗",
+        ["Hide Trap Struggle UI"] = "隐藏陷阱挣扎界面",
+        ["No Downed / Ragdoll"] = "无倒地/布娃娃",
+        ["No Movement Lock"] = "无移动锁定",
+        ["No Trap Lock"] = "无陷阱锁定",
+        ["No Jumpscare Camera"] = "无惊吓镜头",
+        ["No Chase Static"] = "无追逐雪花噪点",
+        ["Fullbright"] = "全屏亮度",
+        ["Insta Open SupplyDrop"] = "瞬间打开空投",
+        ["Insta Close RakeTrap"] = "瞬间关闭陷阱",
+        ["Known Object Prompt Bypass"] = "已知物体交互绕过",
+        ["Prompt Bypass"] = "交互绕过",
+        ["Prompt Distance"] = "交互距离",
+        ["Unlock Prompts Once"] = "一次性解锁所有交互",
+        ["StartRemote Play"] = "远程开始游戏",
+        ["StartRemote LoadData"] = "远程加载数据",
+        ["StartRemote JoinOld"] = "远程加入旧局",
+        ["Third Person"] = "第三人称",
+        ["Custom Cursor"] = "自定义鼠标",
+        ["Lock Window Dragging"] = "锁定窗口拖动",
+        ["Compact Sidebar"] = "紧凑侧边栏",
+        ["Sidebar Resize Handle"] = "侧边栏调整手柄",
+        ["Sidebar Compacting"] = "侧边栏紧凑模式",
+        ["Disable Compact Snap"] = "禁用紧凑吸附",
+        ["Resizable Window"] = "可调整窗口大小",
+        ["Mobile Toggle/Lock Buttons"] = "移动端开关/锁定按钮",
+        ["Mobile Buttons On Right"] = "移动端按钮靠右",
+        ["Unlock Mouse While Open"] = "打开菜单时解锁鼠标",
+        ["Search Bar"] = "搜索栏",
+        ["Global Search"] = "全局搜索",
+        ["Toggle Frames In Keybinds"] = "按键绑定显示切换框",
+        ["DPI Scale"] = "DPI缩放",
+        ["Corner Radius"] = "圆角半径",
+        ["Config Saving : Enabled"] = "配置保存：已启用",
+        ["Config Saving : Unavailable"] = "配置保存：不可用",
+        ["Save Settings Now"] = "立即保存设置",
+        ["Reset Saved Settings"] = "重置已保存的设置",
+        ["Adonis Bypass"] = "Adonis 反作弊绕过",
+        ["ESP Text Size"] = "透视文字大小",
+        ["ESP Scan Delay"] = "透视扫描间隔",
+        ["ESP Max Distance"] = "透视最大距离",
+        ["ESP Highlights"] = "透视高亮",
+        ["ESP Show Distance"] = "透视显示距离",
+        ["Unload Script"] = "卸载脚本",
+        ["Message sounds"] = "消息提示音",
+        ["Message notifications"] = "消息通知",
+        ["RADIO"] = "电台",
+        ["Waiting for radio messages..."] = "等待电台消息...",
+        ["Rake's Target : ?"] = "镰鼬目标：？",
+        ["Time Until Day : ?"] = "距离白天时间：？",
+        ["Power : ?"] = "电力：？",
+        ["UI Toggle Keybind"] = "界面开关快捷键",
+        ["Toggle"] = "开关",
+        ["Hold"] = "按住",
+        ["Press"] = "按下",
+        ["None"] = "无",
+        ["Notification"] = "通知",
+        ["ALERT"] = "警告",
+        ["HOLY JESUS BLOOD HOUR IS COMING NOW"] = "天哪，血月时刻即将来临！",
+    }
+
+    local function translateObject(obj)
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+            local txt = obj.Text
+            if txt and translations[txt] then
+                obj.Text = translations[txt]
+            end
+        end
+        for _, child in ipairs(obj:GetChildren()) do
+            translateObject(child)
+        end
+    end
+
+    local player = game:GetService("Players").LocalPlayer
+    if not player then return end
+    local playerGui = player:WaitForChild("PlayerGui")
+    task.wait(1)  -- 等待UI完全加载
+    translateObject(playerGui)
+end
+
+task.spawn(function()
+    task.wait(1.5)
+    translateUI()
+end)
+-- ==============================================
