@@ -6287,6 +6287,23 @@ if game.GameId == 847722000 then
 	})
 
 	-- ================= 新增：自动拾取信号枪 UI 开关 =================
+	-- 注意：此开关会调用下面定义的 setFlarePickupEnabled 函数
+	local flarePickupEnabled = false
+	function setFlarePickupEnabled(enabled)
+		flarePickupEnabled = enabled == true
+		if flarePickupEnabled then
+			-- 扫描并添加到队列的逻辑在下面模块中自动处理
+			if type(scanExistingFlares) == "function" then
+				scanExistingFlares()
+			end
+		else
+			if type(flarePickup) == "table" then
+				flarePickup.queue = {}
+				flarePickup.busy = false
+			end
+		end
+	end
+
 	ExploitsTab:CreateToggle({
 		Name = "Auto Pickup Flare Gun",
 		CurrentValue = st.autoPickupFlare,
@@ -6294,12 +6311,7 @@ if game.GameId == 847722000 then
 		Callback = function(state)
 			st.autoPickupFlare = state == true
 			cfgSet("autoPickupFlare", st.autoPickupFlare)
-			if not st.autoPickupFlare then
-				if flarePickup then
-					flarePickup.queue = {}
-					flarePickup.busy = false
-				end
-			end
+			setFlarePickupEnabled(st.autoPickupFlare)
 		end,
 	})
 	-- ================================================================
@@ -6689,81 +6701,188 @@ if game.GameId == 847722000 then
 	end
 	end
 
-	-- ================= 自动拾取信号枪核心逻辑 =================
+	-- ================= 自动拾取信号枪核心逻辑（碰撞箱扩大 + 移动触碰版） =================
 	local flarePickup = {
 		queue = {},
 		busy = false,
-		delay = 0.3,
-		offset = Vector3.new(0, 3, 0),
+		enabled = false,
+		targetName = "FlareGunPickUp",
+		offset = Vector3.new(0, 0.8, 0),
+		moveDistance = 2.5,
+		moveSpeed = 20,
+		moveTime = 0.3,
+		returnDelay = 0.5,
+		hitboxScale = 2.0,
 	}
+
+	local function getFlarePosition(flare)
+		if not flare or not flare.Parent then return nil end
+		local primary = flare.PrimaryPart
+		if primary and primary:IsA("BasePart") then return primary.Position end
+		for _, child in ipairs(flare:GetChildren()) do
+			if child:IsA("BasePart") then return child.Position end
+		end
+		local ok, pos = pcall(function() return flare:GetPivot().Position end)
+		return ok and pos or nil
+	end
+
+	local function findHitbox(flare)
+		for _, child in ipairs(flare:GetDescendants()) do
+			if child:IsA("BasePart") and (child.Name == "Hitbox" or child.Name == "HitBox" or child.Name == "Handle") then
+				return child
+			end
+		end
+		for _, child in ipairs(flare:GetDescendants()) do
+			if child:IsA("BasePart") then
+				return child
+			end
+		end
+		return nil
+	end
+
+	local function tryPrompt(flare, player)
+		for _, child in ipairs(flare:GetDescendants()) do
+			if child:IsA("ProximityPrompt") then
+				pcall(function() child:Prompt(player) end)
+				return true
+			end
+		end
+		return false
+	end
 
 	local function processFlareQueue()
 		if flarePickup.busy then return end
 		if #flarePickup.queue == 0 then return end
-		if not st.autoPickupFlare then
+		if not flarePickup.enabled then
 			flarePickup.queue = {}
 			return
 		end
+
 		local flare = table.remove(flarePickup.queue, 1)
 		if not flare or not flare.Parent then
 			processFlareQueue()
 			return
 		end
-		local player = Plrs.LocalPlayer
-		local char = player and player.Character
-		local hrp = char and GET_HRP()
-		if not hrp then
+
+		local flarePos = getFlarePosition(flare)
+		if not flarePos then
+			processFlareQueue()
+			return
+		end
+
+		local hitbox = findHitbox(flare)
+		local originalSize = nil
+		local originalCanTouch = nil
+		if hitbox then
+			originalSize = hitbox.Size
+			originalCanTouch = hitbox.CanTouch
+			hitbox.Size = originalSize * flarePickup.hitboxScale
+			hitbox.CanTouch = true
+			hitbox.CanQuery = true
+		end
+
+		local hrp = GET_HRP()
+		local hum = getHum()
+		if not hrp or not hum then
+			if hitbox and originalSize then
+				hitbox.Size = originalSize
+				hitbox.CanTouch = originalCanTouch
+			end
+			table.insert(flarePickup.queue, 1, flare)
 			task.wait(0.5)
 			processFlareQueue()
 			return
 		end
+
 		local originalCF = hrp.CFrame
-		local flareCF = flare:GetPivot()
-		local targetCF = flareCF + flarePickup.offset
+		local targetPos = flarePos + flarePickup.offset
+		local oldSpeed = hum.WalkSpeed
+		local oldAutoRotate = hum.AutoRotate
+
 		flarePickup.busy = true
 		task.spawn(function()
 			local success = pcall(function()
-				SET_HRP_CFRAME(targetCF)
-				task.wait(flarePickup.delay)
+				SET_HRP_CFRAME(CFrame.new(targetPos))
+				task.wait(0.1)
+
+				local prompted = tryPrompt(flare, Plrs.LocalPlayer)
+				if not prompted then
+					hum.AutoRotate = false
+					hum.WalkSpeed = flarePickup.moveSpeed
+					local forward = hrp.CFrame.LookVector
+					local targetMove = hrp.Position + forward * flarePickup.moveDistance
+					hum:MoveTo(targetMove)
+					task.wait(flarePickup.moveTime)
+
+					local backPos = hrp.Position - forward * flarePickup.moveDistance
+					hum:MoveTo(backPos)
+					task.wait(flarePickup.moveTime)
+
+					hum.WalkSpeed = oldSpeed
+					hum.AutoRotate = oldAutoRotate
+					task.wait(flarePickup.returnDelay)
+				end
+
 				if hrp and hrp.Parent then
 					SET_HRP_CFRAME(originalCF)
 				end
 			end)
+
+			if hitbox and originalSize then
+				pcall(function()
+					hitbox.Size = originalSize
+					if originalCanTouch ~= nil then hitbox.CanTouch = originalCanTouch end
+				end)
+			end
+
 			if not success then
 				pcall(function()
-					if hrp and hrp.Parent then
-						SET_HRP_CFRAME(originalCF)
+					if hrp and hrp.Parent then SET_HRP_CFRAME(originalCF) end
+					if hum then
+						hum.WalkSpeed = oldSpeed
+						hum.AutoRotate = oldAutoRotate
 					end
 				end)
 			end
+
 			flarePickup.busy = false
 			processFlareQueue()
 		end)
 	end
 
 	local function addFlareToQueue(flare)
-		if not flare or not flare.Parent then return end
+		if not flare or flare.Name ~= flarePickup.targetName then return end
+		if not flare.Parent then return end
 		for _, v in ipairs(flarePickup.queue) do
 			if v == flare then return end
 		end
 		table.insert(flarePickup.queue, flare)
-		processFlareQueue()
+		if not flarePickup.busy then
+			task.spawn(processFlareQueue)
+		end
+	end
+
+	function scanExistingFlares()
+		local count = 0
+		local ws = game:GetService("Workspace")
+		for _, obj in ipairs(ws:GetDescendants()) do
+			if obj.Name == flarePickup.targetName then
+				addFlareToQueue(obj)
+				count = count + 1
+			end
+		end
+		return count
 	end
 
 	local function watchFlareGun()
 		local ws = game:GetService("Workspace")
-		for _, obj in ipairs(ws:GetDescendants()) do
-			if obj.Name == "FlareGunPickUp" then
-				addFlareToQueue(obj)
-			end
-		end
 		ws.DescendantAdded:Connect(function(obj)
-			if obj.Name == "FlareGunPickUp" and st.autoPickupFlare then
+			if obj.Name == flarePickup.targetName and flarePickup.enabled then
 				addFlareToQueue(obj)
 			end
 		end)
 		ws.DescendantRemoving:Connect(function(obj)
-			if obj.Name == "FlareGunPickUp" then
+			if obj.Name == flarePickup.targetName then
 				for i = #flarePickup.queue, 1, -1 do
 					if flarePickup.queue[i] == obj then
 						table.remove(flarePickup.queue, i)
@@ -6774,19 +6893,38 @@ if game.GameId == 847722000 then
 		end)
 	end
 
-	local function onCharacterAdded()
+	local function onCharacterAddedForFlare()
 		flarePickup.queue = {}
 		flarePickup.busy = false
+		if flarePickup.enabled then
+			task.wait(0.5)
+			scanExistingFlares()
+		end
 	end
 
-	task.spawn(function()
+	local function startFlareWatcher()
 		local lp = Plrs.LocalPlayer
 		if lp then
-			lp.CharacterAdded:Connect(onCharacterAdded)
-			if lp.Character then onCharacterAdded() end
+			lp.CharacterAdded:Connect(onCharacterAddedForFlare)
+			if lp.Character then onCharacterAddedForFlare() end
 		end
 		watchFlareGun()
-	end)
+	end
+
+	-- 覆盖全局 setFlarePickupEnabled 使其与本地变量同步
+	local originalSetFlarePickupEnabled = setFlarePickupEnabled
+	setFlarePickupEnabled = function(enabled)
+		flarePickup.enabled = enabled == true
+		if originalSetFlarePickupEnabled then originalSetFlarePickupEnabled(enabled) end
+		if flarePickup.enabled then
+			scanExistingFlares()
+		else
+			flarePickup.queue = {}
+			flarePickup.busy = false
+		end
+	end
+
+	task.spawn(startFlareWatcher)
 	-- ==============================================
 
 	clientBypass.buildUi()
