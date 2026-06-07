@@ -6305,6 +6305,88 @@ ExploitsTab:CreateToggle({
 		setFlarePickupEnabled(st.autoPickupFlare)
 	end,
 })
+
+-- ================= 新增功能开关（飞行、免疫陷阱、电击棍无冷却、增加攻击距离、自保甩飞） =================
+ExploitsTab:CreateToggle({
+	Name = "飞行模式 (按 X 切换)",
+	CurrentValue = st.fly == true,
+	Flag = "FlyMod",
+	Callback = function(state)
+		st.fly = state == true
+		cfgSet("fly", st.fly)
+		if type(setFlyEnabled) == "function" then setFlyEnabled(st.fly) end
+	end,
+})
+
+ExploitsTab:CreateToggle({
+	Name = "免疫陷阱伤害",
+	CurrentValue = st.trapImmunity == true,
+	Flag = "TrapImmunity",
+	Callback = function(state)
+		st.trapImmunity = state == true
+		cfgSet("trapImmunity", st.trapImmunity)
+		if type(setTrapImmunity) == "function" then setTrapImmunity(st.trapImmunity) end
+	end,
+})
+
+ExploitsTab:CreateToggle({
+	Name = "电击棍无冷却",
+	CurrentValue = st.stickNoCD == true,
+	Flag = "StickNoCD",
+	Callback = function(state)
+		st.stickNoCD = state == true
+		cfgSet("stickNoCD", st.stickNoCD)
+		if type(setNoCooldown) == "function" then setNoCooldown(st.stickNoCD) end
+	end,
+})
+
+ExploitsTab:CreateToggle({
+	Name = "增加攻击距离",
+	CurrentValue = st.extendRange == true,
+	Flag = "ExtendRange",
+	Callback = function(state)
+		st.extendRange = state == true
+		cfgSet("extendRange", st.extendRange)
+		if type(setExtendRange) == "function" then setExtendRange(st.extendRange) end
+	end,
+})
+
+ExploitsTab:CreateToggle({
+	Name = "自保甩飞 (镰鼬靠近弹开自己)",
+	CurrentValue = st.selfFling == true,
+	Flag = "SelfFling",
+	Callback = function(state)
+		st.selfFling = state == true
+		cfgSet("selfFling", st.selfFling)
+		if type(setSelfFlingEnabled) == "function" then setSelfFlingEnabled(st.selfFling) end
+	end,
+})
+
+ExploitsTab:CreateSlider({
+	Name = "甩飞触发距离 (米)",
+	Range = {5, 25},
+	Increment = 1,
+	CurrentValue = st.selfFlingDistance,
+	Flag = "SelfFlingDistance",
+	Callback = function(v)
+		st.selfFlingDistance = math.clamp(tonumber(v) or 12, 5, 25)
+		cfgSet("selfFlingDistance", st.selfFlingDistance)
+		if type(setSelfFlingDistance) == "function" then setSelfFlingDistance(st.selfFlingDistance) end
+	end,
+})
+
+ExploitsTab:CreateSlider({
+	Name = "甩飞力度",
+	Range = {20, 150},
+	Increment = 5,
+	CurrentValue = st.selfFlingForce,
+	Flag = "SelfFlingForce",
+	Callback = function(v)
+		st.selfFlingForce = math.clamp(tonumber(v) or 60, 20, 150)
+		cfgSet("selfFlingForce", st.selfFlingForce)
+		if type(setSelfFlingForce) == "function" then setSelfFlingForce(st.selfFlingForce) end
+	end,
+})
 -- ================================================================
 
 ExploitsTab:CreateToggle({
@@ -6833,19 +6915,6 @@ if st.autoMed then setAutoMedEnabled(st.autoMed) end
 if st.medThreshold then setAutoMedThreshold(st.medThreshold) end
 
 task.spawn(startAutoMed)
-
--- UI 控件已在 PlayerTab 中添加，无需重复，但确保存在
-task.spawn(function()
-	for i = 1, 10 do
-		if type(PlayerTab) == "table" and type(PlayerTab.CreateToggle) == "function" then
-			break
-		end
-		task.wait(0.5)
-	end
-	if type(PlayerTab) ~= "table" then
-		print("[AutoMed] UI添加失败")
-	end
-end)
 -- ==============================================
 
 -- ================= 自动拾取信号枪（定时扫描 + 间隔传送版） =================
@@ -7371,94 +7440,5 @@ setSelfFlingForce(st.selfFlingForce)
 
 task.spawn(startSelfFlingScanner)
 -- ==============================================
-
--- 添加 UI 控件（确保所有新增功能的开关出现在对应标签页）
-task.spawn(function()
-	for i = 1, 10 do
-		if type(ClientTab) == "table" and type(ClientTab.CreateToggle) == "function" then
-			break
-		end
-		task.wait(0.5)
-	end
-	if type(ClientTab) == "table" then
-		ClientTab:CreateToggle({
-			Name = "飞行模式 (按 X 切换)",
-			CurrentValue = st.fly == true,
-			Flag = "FlyMod",
-			Callback = function(state)
-				st.fly = state == true
-				cfgSet("fly", st.fly)
-				setFlyEnabled(st.fly)
-			end,
-		})
-		ClientTab:CreateToggle({
-			Name = "免疫陷阱伤害",
-			CurrentValue = st.trapImmunity == true,
-			Flag = "TrapImmunity",
-			Callback = function(state)
-				st.trapImmunity = state == true
-				cfgSet("trapImmunity", st.trapImmunity)
-				setTrapImmunity(st.trapImmunity)
-			end,
-		})
-		ClientTab:CreateToggle({
-			Name = "自保甩飞 (镰鼬靠近弹开自己)",
-			CurrentValue = st.selfFling == true,
-			Flag = "SelfFling",
-			Callback = function(state)
-				st.selfFling = state == true
-				cfgSet("selfFling", st.selfFling)
-				setSelfFlingEnabled(st.selfFling)
-			end,
-		})
-		ClientTab:CreateSlider({
-			Name = "甩飞触发距离 (米)",
-			Range = {5, 25},
-			Increment = 1,
-			CurrentValue = st.selfFlingDistance,
-			Flag = "SelfFlingDistance",
-			Callback = function(v)
-				st.selfFlingDistance = math.clamp(tonumber(v) or 12, 5, 25)
-				cfgSet("selfFlingDistance", st.selfFlingDistance)
-				setSelfFlingDistance(st.selfFlingDistance)
-			end,
-		})
-		ClientTab:CreateSlider({
-			Name = "甩飞力度",
-			Range = {20, 150},
-			Increment = 5,
-			CurrentValue = st.selfFlingForce,
-			Flag = "SelfFlingForce",
-			Callback = function(v)
-				st.selfFlingForce = math.clamp(tonumber(v) or 60, 20, 150)
-				cfgSet("selfFlingForce", st.selfFlingForce)
-				setSelfFlingForce(st.selfFlingForce)
-			end,
-		})
-	end
-
-	if type(ExploitsTab) == "table" then
-		ExploitsTab:CreateToggle({
-			Name = "电击棍无冷却",
-			CurrentValue = st.stickNoCD == true,
-			Flag = "StickNoCD",
-			Callback = function(state)
-				st.stickNoCD = state == true
-				cfgSet("stickNoCD", st.stickNoCD)
-				setNoCooldown(st.stickNoCD)
-			end,
-		})
-		ExploitsTab:CreateToggle({
-			Name = "增加攻击距离",
-			CurrentValue = st.extendRange == true,
-			Flag = "ExtendRange",
-			Callback = function(state)
-				st.extendRange = state == true
-				cfgSet("extendRange", st.extendRange)
-				setExtendRange(st.extendRange)
-			end,
-		})
-	end
-end)
 	clientBypass.buildUi()
 end
