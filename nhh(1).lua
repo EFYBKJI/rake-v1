@@ -248,7 +248,8 @@ if game.GameId == 847722000 then
 	local function uiBoolSet(k, v)
 		cfgSet(k, v == true)
 	end
-
+    st.autoMed = cfgBool("autoMed", false)
+    st.medThreshold = cfgNum("medThreshold", 40, 30, 70)
 	st.fov = cfgNum("fov", tonumber(_G.FieldOfView) or 70, 1, 120)
 	st.fovOn = cfgBool("fovOn", _G.enableFOV == true)
 	st.fovUiFix = cfgBool("fovUiFix", true)
@@ -361,6 +362,7 @@ if game.GameId == 847722000 then
 	st.selfFling = cfgBool("selfFling", false)
 	st.selfFlingDistance = cfgNum("selfFlingDistance", 12, 5, 25)
 	st.selfFlingForce = cfgNum("selfFlingForce", 60, 20, 150)
+	st.flingRakeOnHit = cfgBool("flingRakeOnHit", false)
 
 	_G.FieldOfView = st.fov
 	_G.enableFOV = st.fovOn
@@ -3060,7 +3062,7 @@ local function makeUiTab(tab, group)
 		local cb = info.Callback
 		pcall(function()
 			group:AddToggle(id, {
-				Text = tostring(info.Name or info.Text or "Toggle"),
+				Text = tostring(info.Name or info.Text or "开关"),
 				Default = info.CurrentValue == true or info.Default == true,
 				Callback = function(v)
 					if cb then
@@ -4940,6 +4942,35 @@ local RakeKillauraToggle = ExploitsTab:CreateToggle({
 	end,
 })
 
+-- ================= 自动医疗包 UI 开关 =================
+PlayerTab:CreateToggle({
+	Name = "自动使用医疗包",
+	CurrentValue = st.autoMed == true,
+	Flag = "AutoMed",
+	Callback = function(state)
+		st.autoMed = state == true
+		cfgSet("autoMed", st.autoMed)
+		if type(setAutoMedEnabled) == "function" then
+			setAutoMedEnabled(st.autoMed)
+		end
+	end,
+})
+
+PlayerTab:CreateSlider({
+	Name = "医疗包使用血量阈值 (%)",
+	Range = {30, 70},
+	Increment = 5,
+	CurrentValue = st.medThreshold or 40,
+	Flag = "MedThreshold",
+	Callback = function(v)
+		st.medThreshold = math.clamp(tonumber(v) or 40, 30, 70)
+		cfgSet("medThreshold", st.medThreshold)
+		if type(setAutoMedThreshold) == "function" then
+			setAutoMedThreshold(st.medThreshold)
+		end
+	end,
+})
+
 ExploitsTab:CreateSlider({
 	Name = "攻击范围",
 	Range = {6, 30},
@@ -6308,7 +6339,7 @@ ExploitsTab:CreateToggle({
 
 -- ================= 新增功能开关（飞行、免疫陷阱、电击棍无冷却、增加攻击距离、自保甩飞） =================
 ExploitsTab:CreateToggle({
-	Name = "飞行模式 (按 X 切换)",
+	Name = "飞行模式 (按 X 切换 / 悬浮按钮)",
 	CurrentValue = st.fly == true,
 	Flag = "FlyMod",
 	Callback = function(state)
@@ -6340,14 +6371,17 @@ ExploitsTab:CreateToggle({
 	end,
 })
 
-ExploitsTab:CreateToggle({
-	Name = "增加攻击距离",
-	CurrentValue = st.extendRange == true,
-	Flag = "ExtendRange",
-	Callback = function(state)
-		st.extendRange = state == true
-		cfgSet("extendRange", st.extendRange)
-		if type(setExtendRange) == "function" then setExtendRange(st.extendRange) end
+-- 增加攻击距离改为滑块（百分比）
+ExploitsTab:CreateSlider({
+	Name = "增加攻击距离 (%)",
+	Range = {0, 80},
+	Increment = 5,
+	CurrentValue = st.extendRangePercent or 40,
+	Flag = "ExtendRangePercent",
+	Callback = function(v)
+		st.extendRangePercent = math.clamp(tonumber(v) or 40, 0, 80)
+		cfgSet("extendRangePercent", st.extendRangePercent)
+		if type(setExtendRangePercent) == "function" then setExtendRangePercent(st.extendRangePercent) end
 	end,
 })
 
@@ -6385,6 +6419,17 @@ ExploitsTab:CreateSlider({
 		st.selfFlingForce = math.clamp(tonumber(v) or 60, 20, 150)
 		cfgSet("selfFlingForce", st.selfFlingForce)
 		if type(setSelfFlingForce) == "function" then setSelfFlingForce(st.selfFlingForce) end
+	end,
+})
+
+ExploitsTab:CreateToggle({
+	Name = "电击棍击飞镰鼬",
+	CurrentValue = st.flingRakeOnHit == true,
+	Flag = "FlingRakeOnHit",
+	Callback = function(state)
+		st.flingRakeOnHit = state == true
+		cfgSet("flingRakeOnHit", st.flingRakeOnHit)
+		if type(setFlingRakeOnHit) == "function" then setFlingRakeOnHit(st.flingRakeOnHit) end
 	end,
 })
 -- ================================================================
@@ -6763,466 +6808,146 @@ if canCfg then
 	end)
 end
 end
--- ================= 自动医疗包（全自动，背包内使用，自动换回原工具） =================
-local autoMed = {
-	enabled = false,
-	threshold = 0.4,
-	cooldown = 0,
-	cooldownTime = 16,
-	healing = false,
-	medkitNames = {
-		"FirstAidKit", "Medkit", "医疗包", "FirstAid", "Bandage", "MedKit", "Med", "Heal",
-		"药包", "绷带", "急救包", "治疗", "HealthPack"
-	},
-	holdDuration = 13,
-}
-
-local function getHealthPercent()
-	local hum = getHum()
-	if hum and hum.Health and hum.MaxHealth then
-		return hum.Health / hum.MaxHealth
-	end
-	return 1
-end
-
-local function getCurrentTool()
-	local char = Plrs.LocalPlayer.Character
-	if char then
-		for _, tool in ipairs(char:GetChildren()) do
-			if tool:IsA("Tool") then
-				return tool
-			end
-		end
-	end
-	return nil
-end
-
-local function findMedkitTool()
-	local lp = Plrs.LocalPlayer
-	if not lp then return nil end
-	local backpack = lp:FindFirstChild("Backpack")
-	if backpack then
-		for _, tool in ipairs(backpack:GetChildren()) do
-			if tool:IsA("Tool") then
-				for _, medName in ipairs(autoMed.medkitNames) do
-					if string.find(tool.Name, medName, 1, true) then
-						return tool
-					end
-				end
-			end
-		end
-	end
-	local char = lp.Character
-	if char then
-		for _, tool in ipairs(char:GetChildren()) do
-			if tool:IsA("Tool") then
-				for _, medName in ipairs(autoMed.medkitNames) do
-					if string.find(tool.Name, medName, 1, true) then
-						return tool
-					end
-				end
-			end
-		end
-	end
-	return nil
-end
-
-local function holdE(duration)
-	local uis = game:GetService("UserInputService")
-	if not uis then return end
-	pcall(function()
-		uis:SetKeyDown(Enum.KeyCode.E)
-		task.wait(duration)
-		uis:SetKeyUp(Enum.KeyCode.E)
-	end)
-end
-
-local function useMedkit(tool)
-	if not tool then return false end
-	local hum = getHum()
-	if not hum then return false end
-
-	local previousTool = getCurrentTool()
-	local success = pcall(function() hum:EquipTool(tool) end)
-	if not success then return false end
-	task.wait(0.1)
-
-	autoMed.healing = true
-	local activated = pcall(function() tool:Activate() end)
-	if not activated then
-		holdE(autoMed.holdDuration)
-	else
-		task.wait(autoMed.holdDuration)
-	end
-	task.wait(0.3)
-	autoMed.healing = false
-
-	if previousTool and previousTool ~= tool then
-		pcall(function() hum:EquipTool(previousTool) end)
-	end
-	return true
-end
-
-local function tryUseMedkit()
-	if not autoMed.enabled then return end
-	if autoMed.healing then return end
-	if autoMed.cooldown > 0 then return end
-	if getHealthPercent() >= autoMed.threshold then return end
-
-	local medkit = findMedkitTool()
-	if medkit then
-		useMedkit(medkit)
-		autoMed.cooldown = autoMed.cooldownTime
-		if type(Obsidian) == "table" and Obsidian.Notify then
-			Obsidian:Notify({
-				Title = "自动医疗",
-				Content = "已使用 " .. medkit.Name .. "，治疗中",
-				Duration = 2,
-			})
-		end
-		print("[AutoMed] 使用了 " .. medkit.Name)
-	end
-end
-
-local function updateCooldown(dt)
-	if autoMed.cooldown > 0 then
-		autoMed.cooldown = autoMed.cooldown - dt
-		if autoMed.cooldown < 0 then autoMed.cooldown = 0 end
-	end
-end
-
-local function startAutoMed()
-	local Run = ClonedService("RunService")
-	bind(Run.Heartbeat, function(dt)
-		if AllowRunService ~= true then return end
-		updateCooldown(dt)
-		if math.floor(tick() * 2) % 2 == 0 then
-			tryUseMedkit()
-		end
-	end)
-end
-
-function setAutoMedEnabled(enabled)
-	autoMed.enabled = enabled == true
-	if not autoMed.enabled then autoMed.cooldown = 0 autoMed.healing = false end
-end
-
-function setAutoMedThreshold(value)
-	autoMed.threshold = math.clamp(value / 100, 0.1, 0.9)
-end
-
-if st.autoMed then setAutoMedEnabled(st.autoMed) end
-if st.medThreshold then setAutoMedThreshold(st.medThreshold) end
-
-task.spawn(startAutoMed)
--- ==============================================
-
--- ================= 自动拾取信号枪（定时扫描 + 间隔传送版） =================
-local flarePickup = {
-	enabled = false,
-	targetName = "FlareGunPickUp",
-	offset = Vector3.new(0, 0.8, 0),
-	moveDistance = 2.5,
-	moveSpeed = 20,
-	moveTime = 0.3,
-	returnDelay = 0.5,
-	hitboxScale = 2.0,
-	scanInterval = 1,
-	pickupInterval = 2,
-	lastPickupTime = 0,
-	busy = false,
-}
-
-local function getFlarePosition(flare)
-	if not flare or not flare.Parent then return nil end
-	local primary = flare.PrimaryPart
-	if primary and primary:IsA("BasePart") then return primary.Position end
-	for _, child in ipairs(flare:GetChildren()) do
-		if child:IsA("BasePart") then return child.Position end
-	end
-	local ok, pos = pcall(function() return flare:GetPivot().Position end)
-	return ok and pos or nil
-end
-
-local function findHitbox(flare)
-	for _, child in ipairs(flare:GetDescendants()) do
-		if child:IsA("BasePart") and (child.Name == "Hitbox" or child.Name == "HitBox" or child.Name == "Handle") then
-			return child
-		end
-	end
-	for _, child in ipairs(flare:GetDescendants()) do
-		if child:IsA("BasePart") then return child end
-	end
-	return nil
-end
-
-local function tryPrompt(flare, player)
-	for _, child in ipairs(flare:GetDescendants()) do
-		if child:IsA("ProximityPrompt") then
-			pcall(function() child:Prompt(player) end)
-			return true
-		end
-	end
-	return false
-end
-
-local function performPickup(flare)
-	if not flare or not flare.Parent then return false end
-	local flarePos = getFlarePosition(flare)
-	if not flarePos then return false end
-
-	local hitbox = findHitbox(flare)
-	local originalSize = nil
-	local originalCanTouch = nil
-	if hitbox then
-		originalSize = hitbox.Size
-		originalCanTouch = hitbox.CanTouch
-		hitbox.Size = originalSize * flarePickup.hitboxScale
-		hitbox.CanTouch = true
-		hitbox.CanQuery = true
-	end
-
-	local hrp = GET_HRP()
-	local hum = getHum()
-	if not hrp or not hum then
-		if hitbox and originalSize then
-			hitbox.Size = originalSize
-			hitbox.CanTouch = originalCanTouch
-		end
-		return false
-	end
-
-	local originalCF = hrp.CFrame
-	local targetPos = flarePos + flarePickup.offset
-	local oldSpeed = hum.WalkSpeed
-	local oldAutoRotate = hum.AutoRotate
-
-	local success = pcall(function()
-		SET_HRP_CFRAME(CFrame.new(targetPos))
-		task.wait(0.1)
-
-		local prompted = tryPrompt(flare, Plrs.LocalPlayer)
-		if not prompted then
-			hum.AutoRotate = false
-			hum.WalkSpeed = flarePickup.moveSpeed
-			local forward = hrp.CFrame.LookVector
-			local targetMove = hrp.Position + forward * flarePickup.moveDistance
-			hum:MoveTo(targetMove)
-			task.wait(flarePickup.moveTime)
-
-			local backPos = hrp.Position - forward * flarePickup.moveDistance
-			hum:MoveTo(backPos)
-			task.wait(flarePickup.moveTime)
-
-			hum.WalkSpeed = oldSpeed
-			hum.AutoRotate = oldAutoRotate
-			task.wait(flarePickup.returnDelay)
-		end
-
-		if hrp and hrp.Parent then
-			SET_HRP_CFRAME(originalCF)
-		end
-	end)
-
-	if hitbox and originalSize then
-		pcall(function()
-			hitbox.Size = originalSize
-			if originalCanTouch ~= nil then hitbox.CanTouch = originalCanTouch end
-		end)
-	end
-
-	if not success then
-		pcall(function()
-			if hrp and hrp.Parent then SET_HRP_CFRAME(originalCF) end
-			if hum then
-				hum.WalkSpeed = oldSpeed
-				hum.AutoRotate = oldAutoRotate
-			end
-		end)
-		return false
-	end
-	return true
-end
-
-local function scanAndPickup()
-	if not flarePickup.enabled then return end
-	if flarePickup.busy then return end
-
-	local now = tick()
-	if now - flarePickup.lastPickupTime < flarePickup.pickupInterval then
-		return
-	end
-
-	local ws = game:GetService("Workspace")
-	local closest = nil
-	local closestDist = math.huge
-	local hrp = GET_HRP()
-	if not hrp then return end
-
-	for _, obj in ipairs(ws:GetDescendants()) do
-		if obj.Name == flarePickup.targetName then
-			local pos = getFlarePosition(obj)
-			if pos then
-				local dist = (pos - hrp.Position).Magnitude
-				if dist < closestDist then
-					closestDist = dist
-					closest = obj
-				end
-			end
-		end
-	end
-
-	if closest then
-		flarePickup.busy = true
-		local success = pcall(performPickup, closest)
-		flarePickup.busy = false
-		if success then
-			flarePickup.lastPickupTime = tick()
-			if type(Obsidian) == "table" and Obsidian.Notify then
-				Obsidian:Notify({
-					Title = "自动信号枪",
-					Content = "已拾取信号枪",
-					Duration = 1,
-				})
-			end
-		end
-	end
-end
-
-local function startScanner()
-	local Run = ClonedService("RunService")
-	local lastScanTime = 0
-	bind(Run.Heartbeat, function(dt)
-		if AllowRunService ~= true then return end
-		if not flarePickup.enabled then return end
-		local now = tick()
-		if now - lastScanTime >= flarePickup.scanInterval then
-			lastScanTime = now
-			scanAndPickup()
-		end
-	end)
-end
-
-function setFlarePickupEnabled(enabled)
-	flarePickup.enabled = enabled == true
-	if not flarePickup.enabled then
-		flarePickup.busy = false
-		flarePickup.lastPickupTime = 0
-	end
-end
-
-if st and st.autoPickupFlare ~= nil then
-	setFlarePickupEnabled(st.autoPickupFlare)
-end
-
-task.spawn(startScanner)
--- ==============================================
-
--- ================= 飞行功能（按 X 键切换） =================
+-- ================= 飞行功能（移动端适配 + BodyVelocity隐蔽） =================
 local fly = {
 	enabled = false,
 	active = false,
-	speed = 50,
-	keys = {
-		[Enum.KeyCode.W] = false,
-		[Enum.KeyCode.S] = false,
-		[Enum.KeyCode.A] = false,
-		[Enum.KeyCode.D] = false,
-		[Enum.KeyCode.Space] = false,
-		[Enum.KeyCode.LeftControl] = false,
-	},
+	speed = 45,
+	bv = nil,
+	bg = nil,
+	button = nil,
+	conn = nil,
 }
 
-local function updateFly()
-	if not fly.active then return end
+-- 创建悬浮按钮（移动端）
+local function createFlyButton()
+	local player = Plrs.LocalPlayer
+	local pg = player:FindFirstChild("PlayerGui")
+	if not pg then return end
+	if pg:FindFirstChild("FlyToggleButton") then return end
+	local btn = Instance.new("TextButton")
+	btn.Name = "FlyToggleButton"
+	btn.Size = UDim2.new(0, 80, 0, 80)
+	btn.Position = UDim2.new(1, -100, 0.5, -40)
+	btn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	btn.BackgroundTransparency = 0.4
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.Font = Enum.Font.SourceSansBold
+	btn.TextSize = 20
+	btn.Text = "✈️"
+	btn.Parent = pg
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 40)
+	corner.Parent = btn
+	btn.MouseButton1Click:Connect(function()
+		if not fly.enabled then return end
+		fly.active = not fly.active
+		updateFlyStatusUI()
+		if fly.active then
+			startFlyMovement()
+		else
+			stopFlyMovement()
+		end
+	end)
+	fly.button = btn
+end
+
+local function updateFlyStatusUI()
+	local pg = Plrs.LocalPlayer:FindFirstChild("PlayerGui")
+	local btn = pg and pg:FindFirstChild("FlyToggleButton")
+	if btn then
+		btn.Text = fly.active and "🛩️" or "✈️"
+		btn.BackgroundColor3 = fly.active and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(0, 0, 0)
+	end
+end
+
+local function startFlyMovement()
 	local hrp = GET_HRP()
 	if not hrp then return end
-	local move = Vector3.new(0, 0, 0)
-	local speed = fly.speed * (game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.LeftShift) and 2.5 or 1)
-	if fly.keys[Enum.KeyCode.W] then move = move + hrp.CFrame.LookVector end
-	if fly.keys[Enum.KeyCode.S] then move = move - hrp.CFrame.LookVector end
-	if fly.keys[Enum.KeyCode.A] then move = move - hrp.CFrame.RightVector end
-	if fly.keys[Enum.KeyCode.D] then move = move + hrp.CFrame.RightVector end
-	if fly.keys[Enum.KeyCode.Space] then move = move + Vector3.new(0, 1, 0) end
-	if fly.keys[Enum.KeyCode.LeftControl] then move = move - Vector3.new(0, 1, 0) end
-	hrp.CFrame = hrp.CFrame + move.Unit * speed * (game:GetService("RunService").Heartbeat:Wait())
+	if fly.bv then fly.bv:Destroy() end
+	if fly.bg then fly.bg:Destroy() end
+	fly.bv = Instance.new("BodyVelocity")
+	fly.bv.MaxForce = Vector3.new(100000, 100000, 100000)
+	fly.bv.Velocity = Vector3.new(0, 0, 0)
+	fly.bv.Parent = hrp
+	fly.bg = Instance.new("BodyGyro")
+	fly.bg.MaxTorque = Vector3.new(100000, 100000, 100000)
+	fly.bg.CFrame = hrp.CFrame
+	fly.bg.Parent = hrp
 	local hum = getHum()
 	if hum then
 		hum.PlatformStand = true
 		hum.AutoRotate = false
+	end
+	local uis = game:GetService("UserInputService")
+	local run = Run
+	fly.conn = run.Heartbeat:Connect(function(dt)
+		if not fly.active then
+			if fly.conn then fly.conn:Disconnect() end
+			return
+		end
+		local move = Vector3.new(0, 0, 0)
+		local speed = fly.speed
+		if uis:IsKeyDown(Enum.KeyCode.W) then move = move + hrp.CFrame.LookVector end
+		if uis:IsKeyDown(Enum.KeyCode.S) then move = move - hrp.CFrame.LookVector end
+		if uis:IsKeyDown(Enum.KeyCode.A) then move = move - hrp.CFrame.RightVector end
+		if uis:IsKeyDown(Enum.KeyCode.D) then move = move + hrp.CFrame.RightVector end
+		if uis:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.new(0, 1, 0) end
+		if uis:IsKeyDown(Enum.KeyCode.LeftControl) then move = move - Vector3.new(0, 1, 0) end
+		if move.Magnitude > 0 then
+			fly.bv.Velocity = move.Unit * speed
+		else
+			fly.bv.Velocity = Vector3.new(0, 0, 0)
+		end
+		fly.bg.CFrame = hrp.CFrame
+	end)
+end
+
+local function stopFlyMovement()
+	if fly.bv then fly.bv:Destroy() end
+	if fly.bg then fly.bg:Destroy() end
+	if fly.conn then fly.conn:Disconnect() end
+	local hum = getHum()
+	if hum then
+		hum.PlatformStand = false
+		hum.AutoRotate = true
 	end
 end
 
 local function onFlyKeyPress(input)
 	if not fly.enabled then return end
 	local key = input.KeyCode
-	if fly.keys[key] ~= nil then
-		fly.keys[key] = true
-	elseif key == Enum.KeyCode.X then
+	if key == Enum.KeyCode.X then
 		fly.active = not fly.active
-		local hum = getHum()
-		if hum then
-			hum.PlatformStand = fly.active
-			hum.AutoRotate = not fly.active
-			if not fly.active then
-				hum.Sit = false
-			end
+		updateFlyStatusUI()
+		if fly.active then
+			startFlyMovement()
+		else
+			stopFlyMovement()
 		end
-		local pg = clientBypass.getPlayerGui()
-		if pg then
-			local gui = pg:FindFirstChild("FlyStatus")
-			if not gui then
-				gui = Instance.new("TextLabel")
-				gui.Name = "FlyStatus"
-				gui.Size = UDim2.new(0, 150, 0, 30)
-				gui.Position = UDim2.new(1, -160, 0, 50)
-				gui.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-				gui.BackgroundTransparency = 0.5
-				gui.TextColor3 = Color3.fromRGB(255, 255, 255)
-				gui.Font = Enum.Font.SourceSansBold
-				gui.TextSize = 14
-				gui.Parent = pg
-			end
-			gui.Text = fly.active and "✈️ 飞行模式 ON" or "🦶 飞行模式 OFF"
-			gui.Visible = true
-			if not fly.active then
-				task.delay(3, function() if gui and not fly.active then gui.Visible = false end end)
-			end
-		end
-	end
-end
-
-local function onFlyKeyRelease(input)
-	if not fly.enabled then return end
-	local key = input.KeyCode
-	if fly.keys[key] ~= nil then
-		fly.keys[key] = false
 	end
 end
 
 local function startFly()
 	local uis = game:GetService("UserInputService")
 	bind(uis.InputBegan, onFlyKeyPress)
-	bind(uis.InputEnded, onFlyKeyRelease)
-	task.spawn(function()
-		while true do
-			if fly.active and fly.enabled then
-				pcall(updateFly)
-			end
-			task.wait()
-		end
-	end)
+	createFlyButton()
+	if fly.enabled and fly.active then
+		startFlyMovement()
+	end
 end
 
 function setFlyEnabled(enabled)
 	fly.enabled = enabled == true
-	if not fly.enabled and fly.active then
-		fly.active = false
-		local hum = getHum()
-		if hum then
-			hum.PlatformStand = false
-			hum.AutoRotate = true
+	if not fly.enabled then
+		if fly.active then
+			fly.active = false
+			stopFlyMovement()
+			updateFlyStatusUI()
 		end
+		if fly.button then fly.button.Visible = false end
+	else
+		if fly.button then fly.button.Visible = true end
 	end
 end
 
@@ -7231,28 +6956,38 @@ setFlyEnabled(st.fly)
 task.spawn(startFly)
 -- ==============================================
 
--- ================= 免疫陷阱伤害 =================
+-- ================= 免疫陷阱伤害（增强版） =================
 local trapImmunityEnabled = false
-local function antiTrap()
+local function fullTrapImmunity()
 	local hum = getHum()
 	if not hum or not hum.Parent then return end
 	pcall(function()
 		hum:SetAttribute("iTRPED", nil)
+		hum:SetAttribute("iTRPED2", nil)
 		hum:SetAttribute("iTRPED3", nil)
 		hum:SetAttribute("TrapPos", nil)
 		hum:SetAttribute("TrapRelease", true)
-		if hum.Health > 0 then
-			hum.Health = hum.Health
+		hum:SetAttribute("Struggling", nil)
+		if hum.WalkSpeed < 10 then
+			hum.WalkSpeed = st.spd or 16
 		end
+		hum.PlatformStand = false
+		hum.Sit = false
+		Run:UnbindFromRenderStep("YawBind")
+		Run:UnbindFromRenderStep("TrapBind")
 	end)
-	Run:UnbindFromRenderStep("YawBind")
+	local char = getChar()
+	if char then
+		local trapEff = char:FindFirstChild("TrapEffect")
+		if trapEff then trapEff:Destroy() end
+	end
 end
 
 local function startTrapImmunity()
 	bind(Run.Heartbeat, function()
 		if AllowRunService ~= true then return end
 		if trapImmunityEnabled then
-			antiTrap()
+			fullTrapImmunity()
 		end
 	end)
 end
@@ -7320,8 +7055,8 @@ setNoCooldown(st.stickNoCD)
 task.spawn(startNoCooldown)
 -- ==============================================
 
--- ================= 增加攻击距离 =================
-local extendRangeEnabled = false
+-- ================= 增加攻击距离（百分比滑块，0% ~ 80%） =================
+local extendRangePercent = 40  -- 默认40%
 local function extendAttackRange()
 	local lp = Plrs.LocalPlayer
 	local char = lp.Character
@@ -7341,7 +7076,8 @@ local function extendAttackRange()
 			hitPart:SetAttribute("OriginalSize", hitPart.Size)
 			originalSize = hitPart.Size
 		end
-		hitPart.Size = originalSize * 3
+		local scale = 1 + (extendRangePercent / 100)
+		hitPart.Size = originalSize * scale
 		hitPart.CanTouch = true
 		hitPart.CanQuery = true
 	end
@@ -7350,18 +7086,18 @@ end
 local function startExtendRange()
 	bind(Run.Heartbeat, function()
 		if AllowRunService ~= true then return end
-		if extendRangeEnabled then
+		if extendRangePercent > 0 then
 			pcall(extendAttackRange)
 		end
 	end)
 end
 
-function setExtendRange(enabled)
-	extendRangeEnabled = enabled == true
+function setExtendRangePercent(value)
+	extendRangePercent = math.clamp(value, 0, 80)
 end
 
-if st.extendRange == nil then st.extendRange = false end
-setExtendRange(st.extendRange)
+if st.extendRangePercent == nil then st.extendRangePercent = 40 end
+setExtendRangePercent(st.extendRangePercent)
 task.spawn(startExtendRange)
 -- ==============================================
 
@@ -7439,6 +7175,51 @@ setSelfFlingDistance(st.selfFlingDistance)
 setSelfFlingForce(st.selfFlingForce)
 
 task.spawn(startSelfFlingScanner)
+-- ==============================================
+
+-- ================= 电击棍弹飞 Rake（击中时 Rake 被弹飞） =================
+local flingRakeOnHit = {
+	enabled = false,
+	force = 120,
+	upward = true,
+}
+
+local function flingRake()
+	local rk = ffc(Ws, "Rake")
+	if not rk then return end
+	local root = ffc(rk, "HumanoidRootPart") or ffcr(rk, "HumanoidRootPart")
+	if not root then return end
+	local hrp = GET_HRP()
+	if not hrp then return end
+	local dir = (root.Position - hrp.Position).Unit
+	local vel = dir * flingRakeOnHit.force
+	if flingRakeOnHit.upward then
+		vel = vel + Vector3.new(0, flingRakeOnHit.force * 0.8, 0)
+	end
+	root.AssemblyLinearVelocity = vel
+	root.AssemblyAngularVelocity = Vector3.new(math.random(-30, 30), math.random(-30, 30), math.random(-30, 30))
+end
+
+-- 直接修改原脚本中的 auraSwing 函数（如果存在）
+local originalAuraSwing = auraSwing
+if originalAuraSwing then
+	auraSwing = function(ev, hit)
+		local result = originalAuraSwing(ev, hit)
+		if flingRakeOnHit.enabled then
+			pcall(flingRake)
+		end
+		return result
+	end
+end
+
+function setFlingRakeOnHit(enabled)
+	flingRakeOnHit.enabled = enabled == true
+end
+
+if st.flingRakeOnHit == nil then st.flingRakeOnHit = false end
+setFlingRakeOnHit(st.flingRakeOnHit)
+
+-- 注意：如果 auraSwing 未定义，上面的修改会失败。但因为在段2中已经定义了 auraSwing，应该可以工作。
 -- ==============================================
 	clientBypass.buildUi()
 end
