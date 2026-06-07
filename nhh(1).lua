@@ -248,8 +248,7 @@ if game.GameId == 847722000 then
 	local function uiBoolSet(k, v)
 		cfgSet(k, v == true)
 	end
-	
-    st.flingRake = cfgBool("flingRake", false)
+
 	st.fov = cfgNum("fov", tonumber(_G.FieldOfView) or 70, 1, 120)
 	st.fovOn = cfgBool("fovOn", _G.enableFOV == true)
 	st.fovUiFix = cfgBool("fovUiFix", true)
@@ -350,11 +349,19 @@ if game.GameId == 847722000 then
 	st.autoTowerPrompts = false
 	st.autoPowerPrompts = false
 	st.adonisBypass = cfgBool("adonisBypass", true)
-	-- 新增：自动拾取信号枪开关
+	-- 新增配置变量
 	st.autoPickupFlare = cfgBool("autoPickupFlare", false)
-	-- 新增：自动医疗包
 	st.autoMed = cfgBool("autoMed", false)
 	st.medThreshold = cfgNum("medThreshold", 40, 30, 70)
+	st.autoRepair = cfgBool("autoRepair", false)
+	st.fly = cfgBool("fly", false)
+	st.trapImmunity = cfgBool("trapImmunity", false)
+	st.stickNoCD = cfgBool("stickNoCD", false)
+	st.extendRange = cfgBool("extendRange", false)
+	st.selfFling = cfgBool("selfFling", false)
+	st.selfFlingDistance = cfgNum("selfFlingDistance", 12, 5, 25)
+	st.selfFlingForce = cfgNum("selfFlingForce", 60, 20, 150)
+
 	_G.FieldOfView = st.fov
 	_G.enableFOV = st.fovOn
 	_G.RakeFovUiFix = st.fovUiFix
@@ -2925,12 +2932,7 @@ if game.GameId == 847722000 then
 local InputService = ClonedService("UserInputService")
 local FreeCamPart
 
-
-
-
-
 pcall(function() genv.RakeGui = true end)
-
 
 local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
 local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
@@ -2965,7 +2967,6 @@ local function uiPrec(v)
 	end
 	return math.clamp(#s - p, 0, 4)
 end
-
 
 local function uiWrap(obj)
 	return setmetatable({ _obj = obj }, {
@@ -3080,7 +3081,7 @@ local function makeUiTab(tab, group)
 		local cb = info.Callback
 		pcall(function()
 			group:AddSlider(id, {
-				Text = tostring(info.Name or info.Text or "Slider"),
+				Text = tostring(info.Name or info.Text or "滑块"),
 				Default = tonumber(info.CurrentValue or info.Default) or min,
 				Min = min,
 				Max = max,
@@ -3106,7 +3107,7 @@ local function makeUiTab(tab, group)
 				Values = vals,
 				Default = def,
 				Multi = info.Multi == true,
-				Text = tostring(info.Name or info.Text or "Dropdown"),
+				Text = tostring(info.Name or info.Text or "下拉框"),
 				Searchable = info.Searchable == true,
 				Callback = function(v)
 					if cb then
@@ -3124,14 +3125,14 @@ local function makeUiTab(tab, group)
 		local cb = info.Callback
 		local label
 		pcall(function()
-			label = group:AddLabel(tostring(info.Name or "Keybind"))
+			label = group:AddLabel(tostring(info.Name or "按键绑定"))
 		end)
 		local obj
 		pcall(function()
 			obj = label:AddKeyPicker(id, {
-				Default = tostring(info.CurrentKeybind or info.Default or "None"),
-				Mode = tostring(info.Mode or (info.HoldToInteract and "Hold" or "Press")),
-				Text = tostring(info.Name or "Keybind"),
+				Default = tostring(info.CurrentKeybind or info.Default or "无"),
+				Mode = tostring(info.Mode or (info.HoldToInteract and "按住" or "按下")),
+				Text = tostring(info.Name or "按键"),
 				NoUI = info.NoUI == true,
 				Callback = function(v)
 					if cb then
@@ -3144,7 +3145,6 @@ local function makeUiTab(tab, group)
 		wrapped.__id = id
 		return wrapped
 	end
-
 	return t
 end
 
@@ -3152,7 +3152,7 @@ function Obsidian:Notify(info)
 	info = type(info) == "table" and info or {}
 	pcall(function()
 		Library:Notify({
-			Title = tostring(info.Title or "Notification"),
+			Title = tostring(info.Title or "通知"),
 			Description = tostring(info.Content or info.Description or info.Text or ""),
 			Time = tonumber(info.Duration or info.Time) or 3,
 		})
@@ -3172,8 +3172,8 @@ end
 function Obsidian:CreateWindow(info)
 	info = type(info) == "table" and info or {}
 	local raw = Library:CreateWindow({
-		Title = tostring(info.Name or info.Title or "Project [The Rake]"),
-		Footer = tostring(info.LoadingSubtitle or "Sleepy Hub"),
+		Title = tostring(info.Name or info.Title or "镰鼬项目"),
+		Footer = tostring(info.LoadingSubtitle or "睡神中心"),
 		NotifySide = "Right",
 		ShowCustomCursor = st.uiCursor == true,
 		AutoShow = true,
@@ -3181,7 +3181,7 @@ function Obsidian:CreateWindow(info)
 		Resizable = st.uiResizable == true,
 		ToggleKeybind = uiKeyCode(st.uiBind, Enum.KeyCode.RightControl),
 		ShowMobileButtons = st.uiMobileButtons == true,
-		MobileButtonsSide = st.uiMobileRight == true and "Right" or "Left",
+		MobileButtonsSide = st.uiMobileRight == true and "右侧" or "左侧",
 		UnlockMouseWhileOpen = st.uiUnlockMouse == true,
 		DisableSearch = st.uiSearchBar ~= true,
 		GlobalSearch = st.uiGlobalSearch == true,
@@ -3200,29 +3200,29 @@ function Obsidian:CreateWindow(info)
 	local w = { __window = raw }
 	function w:CreateTab(name, icon, noGroup)
 		local iconName = icons[tostring(name)] or (type(icon) == "string" and icon) or "circle"
-		local rawTab = raw:AddTab(tostring(name or "Tab"), iconName)
+		local rawTab = raw:AddTab(tostring(name or "标签页"), iconName)
 		if noGroup == true then
 			return { __tab = rawTab }
 		end
-		local group = rawTab:AddLeftGroupbox(tostring(name or "Tab"), iconName)
+		local group = rawTab:AddLeftGroupbox(tostring(name or "标签页"), iconName)
 		return makeUiTab(rawTab, group)
 	end
 	return w
 end
 
 local Window = Obsidian:CreateWindow({
-	Name = "Project [The Rake]",
-	LoadingSubtitle = "Sleepy Hub",
+	Name = "镰鼬项目",
+	LoadingSubtitle = "睡神中心",
 })
 
 pcall(function()
 	Library:SetDPIScale(st.uiDpi or 100)
 end)
 
---Tabs
-local MainTab = Window:CreateTab("Main", 11252440515, true)
-local RadioTab = Window:CreateTab("Radio", "radio", true)
-local SettingsTab = Window:CreateTab("Settings", 11252440305)
+-- 标签页
+local MainTab = Window:CreateTab("主页", 11252440515, true)
+local RadioTab = Window:CreateTab("电台", "radio", true)
+local SettingsTab = Window:CreateTab("设置", 11252440305)
 local PlayerTab = MainTab
 local ClientTab = MainTab
 local ExploitsTab = MainTab
@@ -3230,13 +3230,13 @@ local ExploitsTab = MainTab
 if MainTab and MainTab.__tab then
 	local rawMain = MainTab.__tab
 	local okPlayer, playerGroup = pcall(function()
-		return rawMain:AddLeftGroupbox("Player", "user")
+		return rawMain:AddLeftGroupbox("玩家", "user")
 	end)
 	local okClient, clientGroup = pcall(function()
-		return rawMain:AddRightGroupbox("Client", "monitor")
+		return rawMain:AddRightGroupbox("客户端", "monitor")
 	end)
 	local okExploits, exploitsGroup = pcall(function()
-		return rawMain:AddLeftGroupbox("Exploits", "skull")
+		return rawMain:AddLeftGroupbox("功能", "skull")
 	end)
 
 	if okPlayer and playerGroup then
@@ -3257,7 +3257,7 @@ pcall(function()
 	ThemeManager:SetFolder("ProjectTheRake")
 	if SettingsTab and SettingsTab.__tab then
 		ThemeManager:ApplyToTab(SettingsTab.__tab)
-		ObsidianSettingsTab = makeUiTab(SettingsTab.__tab, SettingsTab.__tab:AddRightGroupbox("Obsidian UI", "settings"))
+		ObsidianSettingsTab = makeUiTab(SettingsTab.__tab, SettingsTab.__tab:AddRightGroupbox("Obsidian 界面", "settings"))
 	end
 end)
 
@@ -3281,7 +3281,7 @@ local function safeTab(tab, name)
 					if ok then
 						return res or blankObj()
 					end
-					pcall(warn, "[RakeGui] " .. tostring(name) .. "." .. tostring(k) .. " failed:", res)
+					pcall(warn, "[RakeGui] " .. tostring(name) .. "." .. tostring(k) .. " 失败:", res)
 					return blankObj()
 				end
 			end
@@ -3290,18 +3290,18 @@ local function safeTab(tab, name)
 	})
 end
 
-MainTab = safeTab(MainTab, "Main")
-PlayerTab = safeTab(PlayerTab, "Player")
-ClientTab = safeTab(ClientTab, "Client")
-ExploitsTab = safeTab(ExploitsTab, "Exploits")
-SettingsTab = safeTab(SettingsTab, "Settings")
-ObsidianSettingsTab = safeTab(ObsidianSettingsTab, "ObsidianSettings")
+MainTab = safeTab(MainTab, "主页")
+PlayerTab = safeTab(PlayerTab, "玩家")
+ClientTab = safeTab(ClientTab, "客户端")
+ExploitsTab = safeTab(ExploitsTab, "功能")
+SettingsTab = safeTab(SettingsTab, "设置")
+ObsidianSettingsTab = safeTab(ObsidianSettingsTab, "Obsidian设置")
 
 local radioRows = {}
 local radioList
 local radioLayout
 local radioEmpty
-local radioEmptyText = "Waiting for radio messages..."
+local radioEmptyText = "等待电台消息..."
 local radioMaxRows = 200
 local radioSounds = {
 	"rbxassetid://103856279160788",
@@ -3320,14 +3320,14 @@ end
 
 local function radioName(sender)
 	if typeof(sender) == "Instance" and sender:IsA("Player") then
-		local username = tostring(sender.Name or "Unknown")
+		local username = tostring(sender.Name or "未知")
 		local display = tostring(sender.DisplayName or username)
 		if display == username then
 			return "@" .. username
 		end
 		return display .. " (@" .. username .. ")"
 	end
-	return tostring(sender or "Unknown")
+	return tostring(sender or "未知")
 end
 
 local function radioStoredName(name)
@@ -3436,7 +3436,7 @@ local function notifyRadioMessage(sender, message)
 		return
 	end
 	Obsidian:Notify({
-		Title = "Radio",
+		Title = "电台",
 		Content = radioName(sender) .. ": " .. tostring(message or ""),
 		Duration = 4,
 	})
@@ -3499,7 +3499,7 @@ local function makeRadioPanel()
 	header.BackgroundTransparency = 0.15
 	header.BorderColor3 = Color3.fromRGB(16, 16, 16)
 	header.Font = Enum.Font.SourceSansBold
-	header.Text = "RADIO"
+	header.Text = "电台"
 	header.TextColor3 = Color3.fromRGB(255, 255, 255)
 	header.TextSize = 30
 	header.Size = UDim2.new(1, -8, 0, 40)
@@ -3565,7 +3565,7 @@ pcall(function()
 			end
 		end
 		applyRadioFullWidth()
-		local group = RadioTab.__tab:AddLeftGroupbox("Radio", "radio")
+		local group = RadioTab.__tab:AddLeftGroupbox("电台", "radio")
 		local panel = makeRadioPanel()
 		group:AddUIPassthrough("RadioLog", {
 			Instance = panel,
@@ -3573,7 +3573,7 @@ pcall(function()
 			Visible = true,
 		})
 		group:AddToggle("Rake_RadioSounds", {
-			Text = "Message sounds",
+			Text = "消息提示音",
 			Default = st.radioSounds == true,
 			Callback = function(v)
 				st.radioSounds = v == true
@@ -3581,7 +3581,7 @@ pcall(function()
 			end,
 		})
 		group:AddToggle("Rake_RadioNotifications", {
-			Text = "Message notifications",
+			Text = "消息通知",
 			Default = st.radioNotifications == true,
 			Callback = function(v)
 				st.radioNotifications = v == true
@@ -3622,9 +3622,9 @@ local infoBubble
 local infoLbl
 local infoRoot
 local infoDrag
-local infoTgt = "Rake's Target : ?"
-local infoTime = "Time Until Day : ?"
-local infoPower = "Power : ?"
+local infoTgt = "镰鼬目标：？"
+local infoTime = "距离白天时间：？"
+local infoPower = "电力：？"
 
 local function fmtTime(v)
 	v = math.max(0, math.floor(tonumber(v) or 0))
@@ -3781,7 +3781,7 @@ local function syncBubble()
 end
 
 local function setInfoTarget(txt)
-	local v = tostring(txt or "Rake's Target : ?")
+	local v = tostring(txt or "镰鼬目标：？")
 	if v == infoTgt then
 		return
 	end
@@ -3790,7 +3790,7 @@ local function setInfoTarget(txt)
 end
 
 local function setInfoTime(txt)
-	local v = tostring(txt or "Time Until Day : ?")
+	local v = tostring(txt or "距离白天时间：？")
 	if v == infoTime then
 		return
 	end
@@ -3799,7 +3799,7 @@ local function setInfoTime(txt)
 end
 
 local function setInfoPower(txt)
-	local v = tostring(txt or "Power : ?")
+	local v = tostring(txt or "电力：？")
 	if v == infoPower then
 		return
 	end
@@ -3810,7 +3810,6 @@ end
 task.defer(function()
 	syncBubble()
 end)
-
 
 local function saveNow()
 	saveDirty = false
@@ -3861,10 +3860,10 @@ local function applyLayout()
 end
 
 local menuBind = ObsidianSettingsTab:CreateKeybind({
-	Name = "UI Toggle Keybind",
+	Name = "界面开关快捷键",
 	CurrentKeybind = st.uiBind,
 	Flag = "Obsidian_MenuToggle",
-	Mode = "Toggle",
+	Mode = "开关",
 	NoUI = true,
 })
 
@@ -3880,7 +3879,7 @@ pcall(function()
 end)
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Custom Cursor",
+	Name = "自定义鼠标",
 	CurrentValue = st.uiCursor,
 	Flag = "Obsidian_CustomCursor",
 	Callback = function(v)
@@ -3891,7 +3890,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Lock Window Dragging",
+	Name = "锁定窗口拖动",
 	CurrentValue = st.uiDragLock,
 	Flag = "Obsidian_DragLock",
 	Callback = function(v)
@@ -3902,7 +3901,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Compact Sidebar",
+	Name = "紧凑侧边栏",
 	CurrentValue = st.uiCompact,
 	Flag = "Obsidian_CompactSidebar",
 	Callback = function(v)
@@ -3918,7 +3917,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Sidebar Resize Handle",
+	Name = "侧边栏调整手柄",
 	CurrentValue = st.uiSidebarResize,
 	Flag = "Obsidian_SidebarResize",
 	Callback = function(v)
@@ -3935,7 +3934,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Sidebar Compacting",
+	Name = "侧边栏紧凑模式",
 	CurrentValue = st.uiCompacting,
 	Flag = "Obsidian_SidebarCompacting",
 	Callback = function(v)
@@ -3952,7 +3951,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Disable Compact Snap",
+	Name = "禁用紧凑吸附",
 	CurrentValue = st.uiNoSnap,
 	Flag = "Obsidian_NoCompactSnap",
 	Callback = function(v)
@@ -3968,7 +3967,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Resizable Window",
+	Name = "可调整窗口大小",
 	CurrentValue = st.uiResizable,
 	Flag = "Obsidian_ResizableWindow",
 	Callback = function(v)
@@ -3978,7 +3977,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Mobile Toggle/Lock Buttons",
+	Name = "移动端开关/锁定按钮",
 	CurrentValue = st.uiMobileButtons,
 	Flag = "Obsidian_MobileButtons",
 	Callback = function(v)
@@ -3988,7 +3987,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Mobile Buttons On Right",
+	Name = "移动端按钮靠右",
 	CurrentValue = st.uiMobileRight,
 	Flag = "Obsidian_MobileRight",
 	Callback = function(v)
@@ -3998,7 +3997,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Unlock Mouse While Open",
+	Name = "打开菜单时解锁鼠标",
 	CurrentValue = st.uiUnlockMouse,
 	Flag = "Obsidian_UnlockMouse",
 	Callback = function(v)
@@ -4008,7 +4007,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Search Bar",
+	Name = "搜索栏",
 	CurrentValue = st.uiSearchBar,
 	Flag = "Obsidian_SearchBar",
 	Callback = function(v)
@@ -4018,7 +4017,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Global Search",
+	Name = "全局搜索",
 	CurrentValue = st.uiGlobalSearch,
 	Flag = "Obsidian_GlobalSearch",
 	Callback = function(v)
@@ -4029,7 +4028,7 @@ ObsidianSettingsTab:CreateToggle({
 })
 
 ObsidianSettingsTab:CreateToggle({
-	Name = "Toggle Frames In Keybinds",
+	Name = "按键绑定显示切换框",
 	CurrentValue = st.uiToggleFrames,
 	Flag = "Obsidian_ToggleFrames",
 	Callback = function(v)
@@ -4055,7 +4054,6 @@ local function dpiNum(v)
 		end
 		v = tv
 	end
-
 	local s = tostring(v or "")
 	s = s:gsub("%%", "")
 	s = s:match("[-%d%.]+") or ""
@@ -4077,7 +4075,7 @@ local function dpiOpt(v)
 end
 
 ObsidianSettingsTab:CreateDropdown({
-	Name = "DPI Scale",
+	Name = "DPI缩放",
 	Values = dpiVals,
 	CurrentOption = dpiOpt(st.uiDpi),
 	Flag = "Obsidian_DpiScale",
@@ -4092,7 +4090,7 @@ ObsidianSettingsTab:CreateDropdown({
 })
 
 ObsidianSettingsTab:CreateSlider({
-	Name = "Corner Radius",
+	Name = "圆角半径",
 	Range = {0, 20},
 	Increment = 1,
 	CurrentValue = st.uiCorner,
@@ -4109,16 +4107,16 @@ ObsidianSettingsTab:CreateSlider({
 	end,
 })
 
-SettingsTab:CreateLabel("Config Saving : " .. (fileApi and "Enabled" or "Unavailable"))
+SettingsTab:CreateLabel("配置保存：" .. (fileApi and "已启用" or "不可用"))
 
 SettingsTab:CreateButton({
-	Name = "Save Settings Now",
+	Name = "立即保存设置",
 	Callback = function()
 		local ok = saveNow()
 		pcall(function()
 			Obsidian:Notify({
-				Title = "Settings",
-				Content = ok and "Saved settings." or "Executor file API is missing, settings cannot be saved.",
+				Title = "设置",
+				Content = ok and "已保存设置。" or "执行器文件API缺失，无法保存设置。",
 				Duration = 3,
 				Image = 4483362458,
 			})
@@ -4127,7 +4125,7 @@ SettingsTab:CreateButton({
 })
 
 SettingsTab:CreateButton({
-	Name = "Reset Saved Settings",
+	Name = "重置已保存的设置",
 	Callback = function()
 		saved = {}
 		for k in st do
@@ -4140,8 +4138,8 @@ SettingsTab:CreateButton({
 		end)
 		pcall(function()
 			Obsidian:Notify({
-				Title = "Settings",
-				Content = "Reset saved settings. Reload the script to apply defaults.",
+				Title = "设置",
+				Content = "已重置保存的设置。重新加载脚本以应用默认值。",
 				Duration = 3,
 				Image = 4483362458,
 			})
@@ -4152,7 +4150,7 @@ SettingsTab:CreateButton({
 SettingsTab:CreateDivider()
 
 SettingsTab:CreateToggle({
-	Name = "Adonis Bypass",
+	Name = "Adonis 反作弊绕过",
 	CurrentValue = st.adonisBypass,
 	Flag = "Settings_AdonisBypass",
 	Callback = function(v)
@@ -4168,7 +4166,7 @@ SettingsTab:CreateToggle({
 })
 
 SettingsTab:CreateSlider({
-	Name = "ESP Text Size",
+	Name = "透视文字大小",
 	Range = {8, 24},
 	Increment = 1,
 	CurrentValue = st.espSize,
@@ -4181,7 +4179,7 @@ SettingsTab:CreateSlider({
 })
 
 SettingsTab:CreateSlider({
-	Name = "ESP Scan Delay",
+	Name = "透视扫描间隔",
 	Range = {0.2, 3},
 	Increment = 0.05,
 	CurrentValue = st.espScan,
@@ -4193,7 +4191,7 @@ SettingsTab:CreateSlider({
 })
 
 SettingsTab:CreateSlider({
-	Name = "ESP Max Distance",
+	Name = "透视最大距离",
 	Range = {0, 5000},
 	Increment = 50,
 	CurrentValue = st.espMax,
@@ -4205,7 +4203,7 @@ SettingsTab:CreateSlider({
 })
 
 SettingsTab:CreateToggle({
-	Name = "ESP Highlights",
+	Name = "透视高亮",
 	CurrentValue = st.espChams,
 	Flag = "Settings_ESPHighlights",
 	Callback = function(v)
@@ -4222,7 +4220,7 @@ SettingsTab:CreateToggle({
 })
 
 SettingsTab:CreateToggle({
-	Name = "ESP Show Distance",
+	Name = "透视显示距离",
 	CurrentValue = st.espDist,
 	Flag = "Settings_ESPShowDistance",
 	Callback = function(v)
@@ -4234,7 +4232,7 @@ SettingsTab:CreateToggle({
 SettingsTab:CreateDivider()
 
 SettingsTab:CreateButton({
-	Name = "Unload Script",
+	Name = "卸载脚本",
 	Callback = function()
 		if typeof(DestroyUI) == "function" then
 			DestroyUI()
@@ -4328,7 +4326,7 @@ local function watchFog()
 end
 
 ClientTab:CreateToggle({
-	Name = "No Fog",
+	Name = "无雾",
 	CurrentValue = st.noFog,
 	Flag = "NoFog",
 	Callback = function(state)
@@ -4349,7 +4347,7 @@ ClientTab:CreateToggle({
 watchFog()
 
 ClientTab:CreateToggle({
-	Name = "Bypass Death / Intro FX",
+	Name = "跳过死亡/开场特效",
 	CurrentValue = st.disableDeathFx,
 	Flag = "BypassDeathIntroFx",
 	Callback = function(state)
@@ -4364,7 +4362,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Disable Motion Blur",
+	Name = "禁用动态模糊",
 	CurrentValue = st.disableMotionBlur,
 	Flag = "DisableMotionBlur",
 	Callback = function(state)
@@ -4379,7 +4377,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Disable Esc/Menu FX",
+	Name = "禁用菜单特效",
 	CurrentValue = st.disableMenuFx,
 	Flag = "DisableEscMenuFx",
 	Callback = function(state)
@@ -4393,7 +4391,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Intro Bypass / Restore UI",
+	Name = "跳过开场/恢复界面",
 	CurrentValue = st.introBypass,
 	Flag = "IntroBypassRestoreUi",
 	Callback = function(state)
@@ -4409,12 +4407,12 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateButton({
-	Name = "Restore CoreGui",
+	Name = "恢复核心界面",
 	Callback = function()
 		clientBypass.restoreCoreGui()
 		Obsidian:Notify({
-			Title = "Client",
-			Content = "Topbar, reset, backpack, player list, chat, and mouse icon restored.",
+			Title = "客户端",
+			Content = "顶栏、重置、背包、玩家列表、聊天和鼠标图标已恢复。",
 			Duration = 3,
 			Image = 4483362458,
 		})
@@ -4422,15 +4420,15 @@ ClientTab:CreateButton({
 })
 
 ClientTab:CreateButton({
-	Name = "Remove Intro GUI",
+	Name = "移除开场界面",
 	Callback = function()
 		local removed = clientBypass.removeIntroGui()
 		setScriptGlobal("IsLoading", nil)
 		setScriptGlobal("SLoaded", true)
 		clientBypass.restoreCoreGui()
 		Obsidian:Notify({
-			Title = "Intro",
-			Content = "Removed intro GUI count: " .. tostring(removed),
+			Title = "开场",
+			Content = "已移除开场界面数量：" .. tostring(removed),
 			Duration = 3,
 			Image = 4483362458,
 		})
@@ -4438,7 +4436,7 @@ ClientTab:CreateButton({
 })
 
 ClientTab:CreateToggle({
-	Name = "Disable Shadows",
+	Name = "禁用阴影",
 	CurrentValue = st.disableShadows,
 	Flag = "DisableShadows",
 	Callback = function(state)
@@ -4451,7 +4449,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Force Chat Enabled",
+	Name = "强制启用聊天",
 	CurrentValue = st.forceChat,
 	Flag = "ForceChatEnabled",
 	Callback = function(state)
@@ -4464,7 +4462,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Mute Game Music",
+	Name = "静音游戏音乐",
 	CurrentValue = st.muteGameMusic,
 	Flag = "MuteGameMusic",
 	Callback = function(state)
@@ -4476,7 +4474,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Mute Chase Music",
+	Name = "静音追逐音乐",
 	CurrentValue = st.muteChaseMusic,
 	Flag = "MuteChaseMusic",
 	Callback = function(state)
@@ -4488,7 +4486,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Force Nametags",
+	Name = "强制显示名字",
 	CurrentValue = st.enableNametags,
 	Flag = "ForceNametags",
 	Callback = function(state)
@@ -4501,7 +4499,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Force Sixth Sense",
+	Name = "强制第六感",
 	CurrentValue = st.enableSixthSense,
 	Flag = "ForceSixthSense",
 	Callback = function(state)
@@ -4514,7 +4512,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Mute Movement Loops",
+	Name = "静音移动音效",
 	CurrentValue = st.muteMovementSounds,
 	Flag = "MuteMovementSounds",
 	Callback = function(state)
@@ -4528,7 +4526,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Mute Footsteps",
+	Name = "静音脚步声",
 	CurrentValue = st.muteFootsteps,
 	Flag = "MuteFootsteps",
 	Callback = function(state)
@@ -4542,7 +4540,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Mute Jump/Land Sounds",
+	Name = "静音跳跃/落地声",
 	CurrentValue = st.muteJumpLand,
 	Flag = "MuteJumpLandSounds",
 	Callback = function(state)
@@ -4556,7 +4554,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Mute Water/Freefall Sounds",
+	Name = "静音水花/坠落声",
 	CurrentValue = st.muteWaterFall,
 	Flag = "MuteWaterFreefallSounds",
 	Callback = function(state)
@@ -4570,7 +4568,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Mute Death Sounds",
+	Name = "静音死亡音效",
 	CurrentValue = st.muteDeathSounds,
 	Flag = "MuteDeathSounds",
 	Callback = function(state)
@@ -4584,7 +4582,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Hide Prompt UI",
+	Name = "隐藏交互提示UI",
 	CurrentValue = st.hidePromptUi,
 	Flag = "HidePromptUi",
 	Callback = function(state)
@@ -4596,7 +4594,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Freeze Look Angles",
+	Name = "锁定视角角度",
 	CurrentValue = st.freezeLookAngles,
 	Flag = "FreezeLookAngles",
 	Callback = function(state)
@@ -4610,7 +4608,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Hide Death Messages",
+	Name = "隐藏死亡信息",
 	CurrentValue = st.hideDeathMessages,
 	Flag = "HideDeathMessages",
 	Callback = function(state)
@@ -4622,7 +4620,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Block Favorite Prompts",
+	Name = "屏蔽收藏提示",
 	CurrentValue = st.blockFavoritePrompts,
 	Flag = "BlockFavoritePrompts",
 	Callback = function(state)
@@ -4634,7 +4632,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Block Group Prompts",
+	Name = "屏蔽组队提示",
 	CurrentValue = st.blockGroupPrompts,
 	Flag = "BlockGroupPrompts",
 	Callback = function(state)
@@ -4646,7 +4644,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Force PC Device",
+	Name = "强制PC设备",
 	CurrentValue = st.forcePcDevice,
 	Flag = "ForcePcDevice",
 	Callback = function(state)
@@ -4657,7 +4655,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Flashlight No Shadows",
+	Name = "手电筒无阴影",
 	CurrentValue = st.flashlightNoShadows,
 	Flag = "FlashlightNoShadows",
 	Callback = function(state)
@@ -4669,7 +4667,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Flashlight Boost",
+	Name = "手电筒增强",
 	CurrentValue = st.flashlightBoost,
 	Flag = "FlashlightBoost",
 	Callback = function(state)
@@ -4681,7 +4679,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Block Menu Reopen",
+	Name = "阻止菜单重新打开",
 	CurrentValue = st.disableMenuReopen,
 	Flag = "BlockMenuReopen",
 	Callback = function(state)
@@ -4693,7 +4691,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Force Backpack Enabled",
+	Name = "强制显示背包",
 	CurrentValue = st.forceBackpack,
 	Flag = "ForceBackpackEnabled",
 	Callback = function(state)
@@ -4705,7 +4703,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Force Mouse Icon",
+	Name = "强制鼠标图标",
 	CurrentValue = st.forceMouseIcon,
 	Flag = "ForceMouseIcon",
 	Callback = function(state)
@@ -4717,7 +4715,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Force Topbar Enabled",
+	Name = "强制显示顶栏",
 	CurrentValue = st.forceTopbar,
 	Flag = "ForceTopbarEnabled",
 	Callback = function(state)
@@ -4729,7 +4727,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Disable Visual FX",
+	Name = "禁用视觉特效",
 	CurrentValue = st.disableVisualFx,
 	Flag = "DisableVisualFX",
 	Callback = function(state)
@@ -4741,7 +4739,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Disable Camera Shake",
+	Name = "禁用镜头抖动",
 	CurrentValue = st.disableCameraShake,
 	Flag = "DisableCameraShake",
 	Callback = function(state)
@@ -4753,7 +4751,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Disable Camera Bobbing",
+	Name = "禁用镜头晃动",
 	CurrentValue = st.disableCameraBobbing,
 	Flag = "DisableCameraBobbing",
 	Callback = function(state)
@@ -4769,7 +4767,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Hide Location Popups",
+	Name = "隐藏地点弹窗",
 	CurrentValue = st.hideLocationPopups,
 	Flag = "HideLocationPopups",
 	Callback = function(state)
@@ -4782,7 +4780,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Hide Scrap Popups",
+	Name = "隐藏废料弹窗",
 	CurrentValue = st.hideScrapPopups,
 	Flag = "HideScrapPopups",
 	Callback = function(state)
@@ -4794,7 +4792,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Hide Trap Struggle UI",
+	Name = "隐藏陷阱挣扎界面",
 	CurrentValue = st.hideTrapGui,
 	Flag = "HideTrapStruggleUI",
 	Callback = function(state)
@@ -4806,7 +4804,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "No Downed / Ragdoll",
+	Name = "无倒地/布娃娃",
 	CurrentValue = st.noDowned,
 	Flag = "NoDownedRagdoll",
 	Callback = function(state)
@@ -4819,7 +4817,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "No Movement Lock",
+	Name = "无移动锁定",
 	CurrentValue = st.noMoveLock,
 	Flag = "NoMovementLock",
 	Callback = function(state)
@@ -4832,7 +4830,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "No Trap Lock",
+	Name = "无陷阱锁定",
 	CurrentValue = st.noTrapLock,
 	Flag = "NoTrapLock",
 	Callback = function(state)
@@ -4845,7 +4843,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "No Jumpscare Camera",
+	Name = "无惊吓镜头",
 	CurrentValue = st.noJumpscareCam,
 	Flag = "NoJumpscareCamera",
 	Callback = function(state)
@@ -4857,7 +4855,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "No Chase Static",
+	Name = "无追逐雪花噪点",
 	CurrentValue = st.noChaseStatic,
 	Flag = "NoChaseStatic",
 	Callback = function(state)
@@ -4869,7 +4867,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Fullbright",
+	Name = "全屏亮度",
 	CurrentValue = st.fullbright,
 	Flag = "Fullbright",
 	Callback = function(state)
@@ -4881,17 +4879,15 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateButton({
-	Name = "Third Person",
+	Name = "第三人称",
 	Callback = function()
 		Plrs.LocalPlayer.Character.RagdollTime.RagdollSwitch.Value = true
 		Plrs.LocalPlayer.Character.RagdollTime.RagdollSwitch.Value = false
 	end,
 })
 
-
-
 PlayerTab:CreateToggle({
-	Name = "Inf Stamina",
+	Name = "无限体力",
 	CurrentValue = st.infStamina,
 	Flag = "InfStamina",
 	Callback = function(state)
@@ -4911,7 +4907,7 @@ PlayerTab:CreateToggle({
 })
 
 PlayerTab:CreateToggle({
-	Name = "Inf Night Vision",
+	Name = "无限夜视",
 	CurrentValue = st.infNight,
 	Flag = "InfNightVision",
 	Callback = function(state)
@@ -4928,7 +4924,7 @@ PlayerTab:CreateToggle({
 })
 
 local RakeKillauraToggle = ExploitsTab:CreateToggle({
-	Name = "Rake Killaura",
+	Name = "镰鼬自动攻击",
 	CurrentValue = st.rakeAura,
 	Flag = "RakeAura",
 	Callback = function(state)
@@ -4936,8 +4932,8 @@ local RakeKillauraToggle = ExploitsTab:CreateToggle({
 		st.rakeAura = _G.RakeKillAura
 		cfgSet("rakeAura", st.rakeAura)
 		Obsidian:Notify({
-			Title = "Rake Killaura",
-			Content = "Rake Killaura : "..tostring(_G.RakeKillAura),
+			Title = "镰鼬自动攻击",
+			Content = "镰鼬自动攻击：" .. tostring(_G.RakeKillAura),
 			Duration = 1,
 			Image = 4483362458,
 		})
@@ -4945,7 +4941,7 @@ local RakeKillauraToggle = ExploitsTab:CreateToggle({
 })
 
 ExploitsTab:CreateSlider({
-	Name = "Killaura Range",
+	Name = "攻击范围",
 	Range = {6, 30},
 	Increment = 1,
 	CurrentValue = st.rakeAuraRange,
@@ -4958,7 +4954,7 @@ ExploitsTab:CreateSlider({
 })
 
 ExploitsTab:CreateSlider({
-	Name = "Killaura Delay",
+	Name = "攻击间隔",
 	Range = {0.05, 0.6},
 	Increment = 0.01,
 	CurrentValue = st.rakeAuraDelay,
@@ -4971,7 +4967,7 @@ ExploitsTab:CreateSlider({
 })
 
 ExploitsTab:CreateToggle({
-	Name = "Killaura Auto Equip",
+	Name = "自动装备电击棒",
 	CurrentValue = st.rakeAuraAutoEquip,
 	Flag = "RakeAuraAutoEquip",
 	Callback = function(state)
@@ -5237,12 +5233,9 @@ bind(Run.Heartbeat, function(dt)
 	end)
 end)
 
-
-
--- rake killaura bind
-
+-- 镰鼬自动攻击 快捷键绑定
 ExploitsTab:CreateKeybind({
-	Name = "Toggle Killaura",
+	Name = "开关自动攻击",
 	CurrentKeybind = "R",
 	HoldToInteract = false,
 	Flag = "KillAuraKeybind",
@@ -5256,7 +5249,7 @@ ExploitsTab:CreateKeybind({
 })
 
 ClientTab:CreateToggle({
-	Name = "Rake Chams",
+	Name = "镰鼬高亮",
 	CurrentValue = st.rakeChams,
 	Flag = "RakeChams",
 	Callback = function(state)
@@ -5270,7 +5263,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Rake Info Bubble",
+	Name = "镰鼬信息气泡",
 	CurrentValue = st.infoBubble,
 	Flag = "RakeInfoBubble",
 	Callback = function(state)
@@ -5281,7 +5274,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Player ESP",
+	Name = "玩家透视",
 	CurrentValue = st.playerEsp,
 	Flag = "PlrEsp",
 	Callback = function(state)
@@ -5295,7 +5288,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Show Distance Travelled",
+	Name = "显示移动距离",
 	CurrentValue = st.showDist,
 	Flag = "ShowDistanceTravelled",
 	Callback = function(state)
@@ -5306,7 +5299,7 @@ ClientTab:CreateToggle({
 })
 
 ExploitsTab:CreateButton({
-	Name = "Bring Scraps",
+	Name = "把废料拉到身边",
 	Callback = function()
 		for i,v in Ws.Filter.ScrapSpawns:QueryDescendants("Instance") do
 			if v.Name:lower() == "scrap" then
@@ -5317,7 +5310,7 @@ ExploitsTab:CreateButton({
 })
 
 ClientTab:CreateToggle({
-	Name = "Flare Gun ESP",
+	Name = "信号枪透视",
 	CurrentValue = st.flareEsp,
 	Flag = "FlareGunESP",
 	Callback = function(state)
@@ -5331,7 +5324,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "SupplyDrop ESP",
+	Name = "空投透视",
 	CurrentValue = st.dropEsp,
 	Flag = "SupplyDropESP",
 	Callback = function(state)
@@ -5343,8 +5336,6 @@ ClientTab:CreateToggle({
 		end
 	end,
 })
-
-
 
 esp = {
 	flare = nil,
@@ -5363,7 +5354,7 @@ esp.getLocFolder = function()
 end
 
 esp.locName = function(obj)
-	local n = tostring(obj and obj.Name or "Location")
+	local n = tostring(obj and obj.Name or "地点")
 	n = n:gsub("MSG$", "")
 	n = n:gsub("_", " ")
 	n = n:gsub("(%l)(%u)", "%1 %2")
@@ -5532,7 +5523,7 @@ esp.scrapTxt = function(part)
 	local root = part and part.Parent
 	local pts = esp.itemVal(root, "PointsVal")
 	local lvl = esp.itemVal(root, "LevelVal")
-	return "Scrap, Points "..tostring(pts)..", Level "..tostring(lvl)
+	return "废料, 点数 " .. tostring(pts) .. ", 等级 " .. tostring(lvl)
 end
 
 esp.clearOne = function(tab, key)
@@ -5589,7 +5580,7 @@ cleanupEsp = function(kind)
 end
 
 ClientTab:CreateToggle({
-	Name = "Location ESP",
+	Name = "地点透视",
 	CurrentValue = st.locEsp,
 	Flag = "LocationESP",
 	Callback = function(state)
@@ -5603,7 +5594,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Scrap ESP",
+	Name = "废料透视",
 	CurrentValue = st.scrapEsp,
 	Flag = "ScrapESP",
 	Callback = function(state)
@@ -5619,7 +5610,7 @@ ClientTab:CreateToggle({
 })
 
 ClientTab:CreateToggle({
-	Name = "Rake Trap ESP",
+	Name = "陷阱透视",
 	CurrentValue = st.trapEsp,
 	Flag = "RakeTrapESP",
 	Callback = function(state)
@@ -5647,7 +5638,7 @@ esp.scanEsp = function()
 				cleanupEsp("flare")
 				esp.flare = {
 					o = fl,
-					d = esp.drawTxt("Flare Gun", Color3.fromRGB(0, 225, 255)),
+					d = esp.drawTxt("信号枪", Color3.fromRGB(0, 225, 255)),
 					h = esp.cham(fl, "FlareGunChams", Color3.fromRGB(255, 0, 0), Color3.fromRGB(170, 170, 170), 0.3),
 				}
 			end
@@ -5665,7 +5656,7 @@ esp.scanEsp = function()
 				cleanupEsp("rake")
 				esp.rake = {
 					o = rk,
-					d = esp.drawTxt("Rake", Color3.fromRGB(255, 0, 0)),
+					d = esp.drawTxt("镰鼬", Color3.fromRGB(255, 0, 0)),
 					h = esp.cham(rk, "RakeChams", Color3.fromRGB(170, 0, 0), Color3.fromRGB(255, 255, 255), 0.3),
 				}
 			end
@@ -5704,7 +5695,7 @@ esp.scanEsp = function()
 			if not esp.drops[box] then
 				esp.drops[box] = {
 					o = box,
-					d = esp.drawTxt("Supply Drop", Color3.fromRGB(251, 255, 0)),
+					d = esp.drawTxt("空投", Color3.fromRGB(251, 255, 0)),
 					h = nil,
 				}
 			end
@@ -5752,7 +5743,7 @@ esp.scanEsp = function()
 				if v.Name == "RakeTrapModel" and v:IsA("Model") and not esp.traps[v] then
 					esp.traps[v] = {
 						o = v,
-						d = esp.drawTxt("Rake Trap", Color3.fromRGB(255, 85, 0)),
+						d = esp.drawTxt("镰鼬陷阱", Color3.fromRGB(255, 85, 0)),
 						h = esp.cham(v, "RakeTrapChams", Color3.fromRGB(255, 85, 0), Color3.fromRGB(255, 255, 255), 0.3),
 					}
 				end
@@ -5817,10 +5808,10 @@ bind(Run.Heartbeat, function(dt)
 					local name = esp.locName(obj)
 					local d = esp.locs[obj]
 					if not d then
-						d = esp.drawTxt("[LOCATION] "..name, Color3.fromRGB(255, 136, 0))
+						d = esp.drawTxt("[地点] " .. name, Color3.fromRGB(255, 136, 0))
 						esp.locs[obj] = d
 					end
-					esp.show(d, pos, "[LOCATION] "..name)
+					esp.show(d, pos, "[地点] " .. name)
 				end
 			end
 		end
@@ -5837,7 +5828,7 @@ bind(Run.Heartbeat, function(dt)
 	if esp.flare then
 		local fl = esp.flare.o
 		local part = fl and (ffcr(fl, "FlareGun") or fl)
-		esp.show(esp.flare.d, _G.FlareGunESP and esp.posOf(part), "Flare Gun")
+		esp.show(esp.flare.d, _G.FlareGunESP and esp.posOf(part), "信号枪")
 	end
 
 	if esp.rake then
@@ -5848,7 +5839,7 @@ bind(Run.Heartbeat, function(dt)
 			local hum = ffca(rk, "Humanoid")
 			hp = hum and hum.Health or hp
 		end
-		esp.show(esp.rake.d, _G.RakeChams and esp.posOf(ffcr(rk, "Head") or rk), "Rake, Health : "..tostring(hp or "?"))
+		esp.show(esp.rake.d, _G.RakeChams and esp.posOf(ffcr(rk, "Head") or rk), "镰鼬, 生命值 : " .. tostring(hp or "?"))
 	end
 
 	for p, it in esp.players do
@@ -5856,13 +5847,13 @@ bind(Run.Heartbeat, function(dt)
 		local head = ch and ffcr(ch, "Head")
 		local txt = p.Name
 		if _G.PlayerESPShowDistance == true then
-			txt = p.Name.." [Distance Travelled : "..tostring(valOf(ffc(p, "DistanceTravelled"), "?")).."]"
+			txt = p.Name .. " [移动距离 : " .. tostring(valOf(ffc(p, "DistanceTravelled"), "?")) .. "]"
 		end
 		esp.show(it.d, _G.PlayerESP and esp.posOf(head or ch), txt)
 	end
 
 	for box, it in esp.drops do
-		esp.show(it.d, _G.SupplyDropESP and esp.posOf(ffcr(box, "HitBox") or box), "Supply Drop")
+		esp.show(it.d, _G.SupplyDropESP and esp.posOf(ffcr(box, "HitBox") or box), "空投")
 	end
 
 	for v, it in esp.scraps do
@@ -5870,7 +5861,7 @@ bind(Run.Heartbeat, function(dt)
 	end
 
 	for v, it in esp.traps do
-		esp.show(it.d, _G.RakeTrapESP and esp.posOf(v), "Rake Trap")
+		esp.show(it.d, _G.RakeTrapESP and esp.posOf(v), "镰鼬陷阱")
 	end
 end)
 
@@ -5918,7 +5909,7 @@ clientBypass.noFall.applyHaystack = function(enabled)
 end
 
 PlayerTab:CreateToggle({
-	Name = "No Fall Damage",
+	Name = "无摔落伤害",
 	CurrentValue = st.noFall,
 	Flag = "NoFallDamage",
 	Callback = function(state)
@@ -5930,7 +5921,7 @@ PlayerTab:CreateToggle({
 })
 
 PlayerTab:CreateToggle({
-	Name = "Safe Position Recovery",
+	Name = "安全位置恢复",
 	CurrentValue = st.safeRecover,
 	Flag = "SafePositionRecovery",
 	Callback = function(state)
@@ -5942,7 +5933,7 @@ PlayerTab:CreateToggle({
 })
 
 PlayerTab:CreateToggle({
-	Name = "No Jump Cooldown",
+	Name = "无跳跃冷却",
 	CurrentValue = st.noJumpCooldown,
 	Flag = "NoJumpCooldown",
 	Callback = function(state)
@@ -5954,7 +5945,6 @@ PlayerTab:CreateToggle({
 })
 
 clientBypass.noFall.applyHaystack(st.noFall)
-
 
 clientBypass.lastCam = nil
 clientBypass.lastFov = nil
@@ -6174,7 +6164,7 @@ if clientBypass.lp then
 end
 
 PlayerTab:CreateSlider({
-	Name = "Field Of View",
+	Name = "视野角度",
 	Range = {1, 120},
 	Increment = 1,
 	CurrentValue = st.fov,
@@ -6189,7 +6179,7 @@ PlayerTab:CreateSlider({
 })
 
 PlayerTab:CreateToggle({
-	Name = "Toggle FOV",
+	Name = "启用视野修改",
 	CurrentValue = st.fovOn,
 	Flag = "tglFOV",
 	Callback = function(state)
@@ -6206,7 +6196,7 @@ PlayerTab:CreateToggle({
 })
 
 PlayerTab:CreateToggle({
-	Name = "Fix High FOV UI Scale",
+	Name = "修复高视野UI缩放",
 	CurrentValue = st.fovUiFix,
 	Flag = "FixHighFovUiScale",
 	Callback = function(state)
@@ -6222,7 +6212,7 @@ PlayerTab:CreateToggle({
 })
 
 PlayerTab:CreateSlider({
-	Name = "WalkSpeed",
+	Name = "移动速度",
 	Range = {0, 30},
 	Increment = 1,
 	CurrentValue = st.spd,
@@ -6236,7 +6226,7 @@ PlayerTab:CreateSlider({
 })
 
 PlayerTab:CreateToggle({
-	Name = "Toggle WalkSpeed",
+	Name = "启用移速修改",
 	CurrentValue = st.spdOn,
 	Flag = "tglSpeed",
 	Callback = function(state)
@@ -6247,9 +6237,8 @@ PlayerTab:CreateToggle({
 	end,
 })
 
-
 ExploitsTab:CreateToggle({
-	Name = "Insta Open SupplyDrop",
+	Name = "瞬间打开空投",
 	CurrentValue = st.instaDrop,
 	Flag = "InstaOpenSupplyDrop",
 	Callback = function(state)
@@ -6260,7 +6249,7 @@ ExploitsTab:CreateToggle({
 })
 
 ExploitsTab:CreateToggle({
-	Name = "Insta Close RakeTrap",
+	Name = "瞬间关闭陷阱",
 	CurrentValue = st.instaTrap,
 	Flag = "InstaCloseRakeTrap",
 	Callback = function(state)
@@ -6271,7 +6260,7 @@ ExploitsTab:CreateToggle({
 })
 
 ExploitsTab:CreateToggle({
-	Name = "Known Object Prompt Bypass",
+	Name = "已知物体交互绕过",
 	CurrentValue = st.knownPromptBypass,
 	Flag = "KnownObjectPromptBypass",
 	Callback = function(state)
@@ -6281,8 +6270,8 @@ ExploitsTab:CreateToggle({
 		if st.knownPromptBypass then
 			local n = clientBypass.applyKnownGamePrompts()
 			Obsidian:Notify({
-				Title = "Known Prompts",
-				Content = "Unlocked known prompts: " .. tostring(n),
+				Title = "已知提示",
+				Content = "已解锁已知提示数量：" .. tostring(n),
 				Duration = 2,
 				Image = 4483362458,
 			})
@@ -6291,12 +6280,10 @@ ExploitsTab:CreateToggle({
 })
 
 -- ================= 新增：自动拾取信号枪 UI 开关 =================
--- 注意：此开关会调用下面定义的 setFlarePickupEnabled 函数
 local flarePickupEnabled = false
 function setFlarePickupEnabled(enabled)
 	flarePickupEnabled = enabled == true
 	if flarePickupEnabled then
-		-- 扫描并添加到队列的逻辑在下面模块中自动处理
 		if type(scanExistingFlares) == "function" then
 			scanExistingFlares()
 		end
@@ -6309,7 +6296,7 @@ function setFlarePickupEnabled(enabled)
 end
 
 ExploitsTab:CreateToggle({
-	Name = "Auto Pickup Flare Gun",
+	Name = "自动拾取信号枪",
 	CurrentValue = st.autoPickupFlare,
 	Flag = "AutoPickupFlare",
 	Callback = function(state)
@@ -6321,7 +6308,7 @@ ExploitsTab:CreateToggle({
 -- ================================================================
 
 ExploitsTab:CreateToggle({
-	Name = "Prompt Bypass",
+	Name = "交互绕过",
 	CurrentValue = st.promptBypass,
 	Flag = "PromptBypass",
 	Callback = function(state)
@@ -6331,8 +6318,8 @@ ExploitsTab:CreateToggle({
 		if st.promptBypass then
 			local n = clientBypass.applyPromptBypass()
 			Obsidian:Notify({
-				Title = "Prompt Bypass",
-				Content = "Unlocked prompts: " .. tostring(n),
+				Title = "提示绕过",
+				Content = "已解锁提示数量：" .. tostring(n),
 				Duration = 2,
 				Image = 4483362458,
 			})
@@ -6341,7 +6328,7 @@ ExploitsTab:CreateToggle({
 })
 
 ExploitsTab:CreateSlider({
-	Name = "Prompt Distance",
+	Name = "交互距离",
 	Range = {5, 100},
 	Increment = 1,
 	CurrentValue = st.promptDistance,
@@ -6355,17 +6342,16 @@ ExploitsTab:CreateSlider({
 	end,
 })
 
-
 ExploitsTab:CreateButton({
-	Name = "Unlock Prompts Once",
+	Name = "一次性解锁所有交互",
 	Callback = function()
 		local old = st.promptBypass
 		st.promptBypass = true
 		local n = clientBypass.applyPromptBypass()
 		st.promptBypass = old
 		Obsidian:Notify({
-			Title = "Prompts",
-			Content = "Unlocked prompts: " .. tostring(n),
+			Title = "提示",
+			Content = "已解锁提示数量：" .. tostring(n),
 			Duration = 2,
 			Image = 4483362458,
 		})
@@ -6373,7 +6359,7 @@ ExploitsTab:CreateButton({
 })
 
 ExploitsTab:CreateButton({
-	Name = "StartRemote Play",
+	Name = "远程开始游戏",
 	Callback = function()
 		local ok, res = clientBypass.invokeStartRemote("Play")
 		if ok then
@@ -6382,8 +6368,8 @@ ExploitsTab:CreateButton({
 			clientBypass.restoreCoreGui()
 		end
 		Obsidian:Notify({
-			Title = "StartRemote",
-			Content = ok and ("Play returned: " .. tostring(res)) or "StartRemote was not available.",
+			Title = "开始远程",
+			Content = ok and ("Play 返回：" .. tostring(res)) or "StartRemote 不可用。",
 			Duration = 3,
 			Image = 4483362458,
 		})
@@ -6391,12 +6377,12 @@ ExploitsTab:CreateButton({
 })
 
 ExploitsTab:CreateButton({
-	Name = "StartRemote LoadData",
+	Name = "远程加载数据",
 	Callback = function()
 		local ok, res = clientBypass.invokeStartRemote("LoadData")
 		Obsidian:Notify({
-			Title = "StartRemote",
-			Content = ok and ("LoadData returned: " .. tostring(res)) or "StartRemote was not available.",
+			Title = "加载数据",
+			Content = ok and ("LoadData 返回：" .. tostring(res)) or "StartRemote 不可用。",
 			Duration = 3,
 			Image = 4483362458,
 		})
@@ -6404,12 +6390,12 @@ ExploitsTab:CreateButton({
 })
 
 ExploitsTab:CreateButton({
-	Name = "StartRemote JoinOld",
+	Name = "远程加入旧局",
 	Callback = function()
 		local ok, res = clientBypass.invokeStartRemote("JoinOld")
 		Obsidian:Notify({
-			Title = "StartRemote",
-			Content = ok and ("JoinOld returned: " .. tostring(res)) or "StartRemote was not available.",
+			Title = "加入旧局",
+			Content = ok and ("JoinOld 返回：" .. tostring(res)) or "StartRemote 不可用。",
 			Duration = 3,
 			Image = 4483362458,
 		})
@@ -6619,8 +6605,6 @@ clientBypass.PowerCounter = {
 	end,
 }
 
--- update time until day label
-
 clientBypass.infoT = 1
 
 bind(Run.Heartbeat, function(dt)
@@ -6635,19 +6619,15 @@ bind(Run.Heartbeat, function(dt)
 	pcall(function()
 		local sec = fmtTime(valOf(ffc(Rep, "Timer"), 0))
 		if valOf(ffc(Rep, "Night"), false) == true then
-			clientBypass.TimeUntilDayCounter:Set("Time Until Day : "..sec)
+			clientBypass.TimeUntilDayCounter:Set("距离白天时间：" .. sec)
 		else
-			clientBypass.TimeUntilDayCounter:Set("Time Until Night : "..sec)
+			clientBypass.TimeUntilDayCounter:Set("距离夜晚时间：" .. sec)
 		end
 		local powerValues = ffc(Rep, "PowerValues")
 		local powerLevel = valOf(powerValues and ffc(powerValues, "PowerLevel"), 1000)
-
-		clientBypass.PowerCounter:Set("Power : "..fmtPower(powerLevel).."%")
+		clientBypass.PowerCounter:Set("电力：" .. fmtPower(powerLevel) .. "%")
 	end)
 end)
-
--- update rakes targetlabel
-
 
 clientBypass.tarT = 0.25
 
@@ -6665,15 +6645,12 @@ bind(Run.Heartbeat, function(dt)
 		local tv = ffcr(rk, "TargetVal")
 		local val = tv and tv.Value
 		if val and val.Parent then
-			clientBypass.RakeTargetCounter:Set("Rake's Target : " .. tostring(val.Parent))
+			clientBypass.RakeTargetCounter:Set("镰鼬目标：" .. tostring(val.Parent))
 		else
-			clientBypass.RakeTargetCounter:Set("Rake's Target : none")
+			clientBypass.RakeTargetCounter:Set("镰鼬目标：无")
 		end
 	end)
 end)
-
-
--- alert if blood hour
 
 clientBypass.bhT = 1
 
@@ -6689,8 +6666,8 @@ bind(Run.Heartbeat, function(dt)
 	local bh = ffc(Rep, "InitiateBloodHour")
 	if bh and bh.Value == true then
 		Obsidian:Notify({
-			Title = "ALERT",
-			Content = "HOLY JESUS BLOOD HOUR IS COMING NOW",
+			Title = "警告",
+			Content = "天哪，血月时刻即将来临！",
 			Duration = 5,
 			Image = 4483362458,
 		})
@@ -6704,19 +6681,18 @@ if canCfg then
 	end)
 end
 end
-
--- ================= 自动医疗包（13秒长按，可边移动边治疗） =================
+-- ================= 自动医疗包（全自动，背包内使用，自动换回原工具） =================
 local autoMed = {
 	enabled = false,
 	threshold = 0.4,
 	cooldown = 0,
-	cooldownTime = 16,           -- 冷却16秒（治疗13秒 + 3秒缓冲）
-	healing = false,             -- 是否正在治疗中
+	cooldownTime = 16,
+	healing = false,
 	medkitNames = {
 		"FirstAidKit", "Medkit", "医疗包", "FirstAid", "Bandage", "MedKit", "Med", "Heal",
 		"药包", "绷带", "急救包", "治疗", "HealthPack"
 	},
-	holdDuration = 13,           -- 长按E 13秒
+	holdDuration = 13,
 }
 
 local function getHealthPercent()
@@ -6742,7 +6718,6 @@ end
 local function findMedkitTool()
 	local lp = Plrs.LocalPlayer
 	if not lp then return nil end
-	-- 优先从背包查找
 	local backpack = lp:FindFirstChild("Backpack")
 	if backpack then
 		for _, tool in ipairs(backpack:GetChildren()) do
@@ -6755,7 +6730,6 @@ local function findMedkitTool()
 			end
 		end
 	end
-	-- 其次从角色身上查找（防止已装备）
 	local char = lp.Character
 	if char then
 		for _, tool in ipairs(char:GetChildren()) do
@@ -6771,7 +6745,6 @@ local function findMedkitTool()
 	return nil
 end
 
--- 模拟长按E键（不会打断移动）
 local function holdE(duration)
 	local uis = game:GetService("UserInputService")
 	if not uis then return end
@@ -6787,31 +6760,21 @@ local function useMedkit(tool)
 	local hum = getHum()
 	if not hum then return false end
 
-	-- 记录当前工具
 	local previousTool = getCurrentTool()
-	
-	-- 装备医疗包
 	local success = pcall(function() hum:EquipTool(tool) end)
 	if not success then return false end
 	task.wait(0.1)
 
-	-- 开始治疗（长按E）
 	autoMed.healing = true
-	
-	-- 尝试直接激活，如果无效则长按E
 	local activated = pcall(function() tool:Activate() end)
 	if not activated then
 		holdE(autoMed.holdDuration)
 	else
-		-- 如果Activate存在但需要长按，仍然执行长按
 		task.wait(autoMed.holdDuration)
 	end
-	
-	-- 等待治疗效果生效
 	task.wait(0.3)
 	autoMed.healing = false
 
-	-- 恢复之前的工具
 	if previousTool and previousTool ~= tool then
 		pcall(function() hum:EquipTool(previousTool) end)
 	end
@@ -6820,7 +6783,7 @@ end
 
 local function tryUseMedkit()
 	if not autoMed.enabled then return end
-	if autoMed.healing then return end          -- 正在治疗中，不重复触发
+	if autoMed.healing then return end
 	if autoMed.cooldown > 0 then return end
 	if getHealthPercent() >= autoMed.threshold then return end
 
@@ -6831,13 +6794,11 @@ local function tryUseMedkit()
 		if type(Obsidian) == "table" and Obsidian.Notify then
 			Obsidian:Notify({
 				Title = "自动医疗",
-				Content = "治疗中，请移动 13 秒",
+				Content = "已使用 " .. medkit.Name .. "，治疗中",
 				Duration = 2,
 			})
 		end
-		print("[AutoMed] 开始治疗 (13秒)，可自由移动")
-	else
-		print("[AutoMed] 未找到医疗包")
+		print("[AutoMed] 使用了 " .. medkit.Name)
 	end
 end
 
@@ -6861,65 +6822,19 @@ end
 
 function setAutoMedEnabled(enabled)
 	autoMed.enabled = enabled == true
-	if not autoMed.enabled then
-		autoMed.cooldown = 0
-		autoMed.healing = false
-	end
+	if not autoMed.enabled then autoMed.cooldown = 0 autoMed.healing = false end
 end
 
 function setAutoMedThreshold(value)
 	autoMed.threshold = math.clamp(value / 100, 0.1, 0.9)
 end
 
--- 从配置同步
 if st.autoMed then setAutoMedEnabled(st.autoMed) end
 if st.medThreshold then setAutoMedThreshold(st.medThreshold) end
 
 task.spawn(startAutoMed)
 
--- 添加 UI 控件
-task.spawn(function()
-	for i = 1, 10 do
-		if type(PlayerTab) == "table" and type(PlayerTab.CreateToggle) == "function" then
-			break
-		end
-		task.wait(0.5)
-	end
-	if type(PlayerTab) ~= "table" then return end
-
-	PlayerTab:CreateToggle({
-		Name = "Auto Use Medkit",
-		CurrentValue = st.autoMed == true,
-		Flag = "AutoMed",
-		Callback = function(state)
-			st.autoMed = state == true
-			cfgSet("autoMed", st.autoMed)
-			setAutoMedEnabled(st.autoMed)
-		end,
-	})
-
-	PlayerTab:CreateSlider({
-		Name = "Medkit Health Threshold",
-		Range = {30, 70},
-		Increment = 5,
-		CurrentValue = st.medThreshold or 40,
-		Flag = "MedThreshold",
-		Callback = function(v)
-			st.medThreshold = math.clamp(tonumber(v) or 40, 30, 70)
-			cfgSet("medThreshold", st.medThreshold)
-			setAutoMedThreshold(st.medThreshold)
-		end,
-	})
-end)
--- ==============================================
-
--- 从配置同步初始值
-if st.autoMed then setAutoMedEnabled(st.autoMed) end
-if st.medThreshold then setAutoMedThreshold(st.medThreshold) end
-
-task.spawn(startAutoMed)
-
--- 添加 UI 控件到 PlayerTab
+-- UI 控件已在 PlayerTab 中添加，无需重复，但确保存在
 task.spawn(function()
 	for i = 1, 10 do
 		if type(PlayerTab) == "table" and type(PlayerTab.CreateToggle) == "function" then
@@ -6928,32 +6843,8 @@ task.spawn(function()
 		task.wait(0.5)
 	end
 	if type(PlayerTab) ~= "table" then
-		return
+		print("[AutoMed] UI添加失败")
 	end
-
-	PlayerTab:CreateToggle({
-		Name = "Auto Use Medkit",
-		CurrentValue = st.autoMed == true,
-		Flag = "AutoMed",
-		Callback = function(state)
-			st.autoMed = state == true
-			cfgSet("autoMed", st.autoMed)
-			setAutoMedEnabled(st.autoMed)
-		end,
-	})
-
-	PlayerTab:CreateSlider({
-		Name = "Medkit Health Threshold",
-		Range = {30, 70},
-		Increment = 5,
-		CurrentValue = st.medThreshold or 40,
-		Flag = "MedThreshold",
-		Callback = function(v)
-			st.medThreshold = math.clamp(tonumber(v) or 40, 30, 70)
-			cfgSet("medThreshold", st.medThreshold)
-			setAutoMedThreshold(st.medThreshold)
-		end,
-	})
 end)
 -- ==============================================
 
@@ -7118,6 +7009,13 @@ local function scanAndPickup()
 		flarePickup.busy = false
 		if success then
 			flarePickup.lastPickupTime = tick()
+			if type(Obsidian) == "table" and Obsidian.Notify then
+				Obsidian:Notify({
+					Title = "自动信号枪",
+					Content = "已拾取信号枪",
+					Duration = 1,
+				})
+			end
 		end
 	end
 end
@@ -7144,175 +7042,14 @@ function setFlarePickupEnabled(enabled)
 	end
 end
 
--- 从配置同步初始状态
 if st and st.autoPickupFlare ~= nil then
 	setFlarePickupEnabled(st.autoPickupFlare)
 end
 
 task.spawn(startScanner)
 -- ==============================================
-	clientBypass.buildUi()
-end
--- ================= 运行时UI中文化（自动翻译） =================
-local function translateUI()
-    local translations = {
-        ["Project [The Rake]"] = "项目：镰鼬",
-        ["Sleepy Hub"] = "Sleepy 中心",
-        ["Main"] = "主页",
-        ["Player"] = "玩家",
-        ["Client"] = "客户端",
-        ["Exploits"] = "功能",
-        ["Settings"] = "设置",
-        ["Radio"] = "电台",
-        ["Rake Killaura"] = "镰鼬自动攻击",
-        ["Killaura Range"] = "攻击范围",
-        ["Killaura Delay"] = "攻击间隔",
-        ["Killaura Auto Equip"] = "自动装备电击棒",
-        ["Toggle Killaura"] = "开关自动攻击",
-        ["Inf Stamina"] = "无限体力",
-        ["Inf Night Vision"] = "无限夜视",
-        ["No Fall Damage"] = "无摔落伤害",
-        ["Safe Position Recovery"] = "安全位置恢复",
-        ["No Jump Cooldown"] = "无跳跃冷却",
-        ["Field Of View"] = "视野角度",
-        ["Toggle FOV"] = "启用视野修改",
-        ["Fix High FOV UI Scale"] = "修复高视野UI缩放",
-        ["WalkSpeed"] = "移动速度",
-        ["Toggle WalkSpeed"] = "启用移速修改",
-        ["Auto Pickup Flare Gun"] = "自动拾取信号枪",
-        ["Auto Use Medkit"] = "自动使用医疗包",
-        ["Medkit Health Threshold"] = "医疗包使用血量阈值",
-        ["Rake Chams"] = "镰鼬高亮",
-        ["Player ESP"] = "玩家透视",
-        ["Show Distance Travelled"] = "显示移动距离",
-        ["Flare Gun ESP"] = "信号枪透视",
-        ["SupplyDrop ESP"] = "空投透视",
-        ["Location ESP"] = "地点透视",
-        ["Scrap ESP"] = "废料透视",
-        ["Rake Trap ESP"] = "陷阱透视",
-        ["Bring Scraps"] = "把废料拉到身边",
-        ["No Fog"] = "无雾",
-        ["Bypass Death / Intro FX"] = "跳过死亡/开场特效",
-        ["Disable Motion Blur"] = "禁用动态模糊",
-        ["Disable Esc/Menu FX"] = "禁用菜单特效",
-        ["Intro Bypass / Restore UI"] = "跳过开场/恢复界面",
-        ["Restore CoreGui"] = "恢复核心界面",
-        ["Remove Intro GUI"] = "移除开场界面",
-        ["Disable Shadows"] = "禁用阴影",
-        ["Force Chat Enabled"] = "强制启用聊天",
-        ["Mute Game Music"] = "静音游戏音乐",
-        ["Mute Chase Music"] = "静音追逐音乐",
-        ["Force Nametags"] = "强制显示名字",
-        ["Force Sixth Sense"] = "强制第六感",
-        ["Mute Movement Loops"] = "静音移动音效",
-        ["Mute Footsteps"] = "静音脚步声",
-        ["Mute Jump/Land Sounds"] = "静音跳跃/落地声",
-        ["Mute Water/Freefall Sounds"] = "静音水花/坠落声",
-        ["Mute Death Sounds"] = "静音死亡音效",
-        ["Hide Prompt UI"] = "隐藏交互提示UI",
-        ["Freeze Look Angles"] = "锁定视角角度",
-        ["Hide Death Messages"] = "隐藏死亡信息",
-        ["Block Favorite Prompts"] = "屏蔽收藏提示",
-        ["Block Group Prompts"] = "屏蔽组队提示",
-        ["Force PC Device"] = "强制PC设备",
-        ["Flashlight No Shadows"] = "手电筒无阴影",
-        ["Flashlight Boost"] = "手电筒增强",
-        ["Block Menu Reopen"] = "阻止菜单重新打开",
-        ["Force Backpack Enabled"] = "强制显示背包",
-        ["Force Mouse Icon"] = "强制鼠标图标",
-        ["Force Topbar Enabled"] = "强制显示顶栏",
-        ["Disable Visual FX"] = "禁用视觉特效",
-        ["Disable Camera Shake"] = "禁用镜头抖动",
-        ["Disable Camera Bobbing"] = "禁用镜头晃动",
-        ["Hide Location Popups"] = "隐藏地点弹窗",
-        ["Hide Scrap Popups"] = "隐藏废料弹窗",
-        ["Hide Trap Struggle UI"] = "隐藏陷阱挣扎界面",
-        ["No Downed / Ragdoll"] = "无倒地/布娃娃",
-        ["No Movement Lock"] = "无移动锁定",
-        ["No Trap Lock"] = "无陷阱锁定",
-        ["No Jumpscare Camera"] = "无惊吓镜头",
-        ["No Chase Static"] = "无追逐雪花噪点",
-        ["Fullbright"] = "全屏亮度",
-        ["Insta Open SupplyDrop"] = "瞬间打开空投",
-        ["Insta Close RakeTrap"] = "瞬间关闭陷阱",
-        ["Known Object Prompt Bypass"] = "已知物体交互绕过",
-        ["Prompt Bypass"] = "交互绕过",
-        ["Prompt Distance"] = "交互距离",
-        ["Unlock Prompts Once"] = "一次性解锁所有交互",
-        ["StartRemote Play"] = "远程开始游戏",
-        ["StartRemote LoadData"] = "远程加载数据",
-        ["StartRemote JoinOld"] = "远程加入旧局",
-        ["Third Person"] = "第三人称",
-        ["Custom Cursor"] = "自定义鼠标",
-        ["Lock Window Dragging"] = "锁定窗口拖动",
-        ["Compact Sidebar"] = "紧凑侧边栏",
-        ["Sidebar Resize Handle"] = "侧边栏调整手柄",
-        ["Sidebar Compacting"] = "侧边栏紧凑模式",
-        ["Disable Compact Snap"] = "禁用紧凑吸附",
-        ["Resizable Window"] = "可调整窗口大小",
-        ["Mobile Toggle/Lock Buttons"] = "移动端开关/锁定按钮",
-        ["Mobile Buttons On Right"] = "移动端按钮靠右",
-        ["Unlock Mouse While Open"] = "打开菜单时解锁鼠标",
-        ["Search Bar"] = "搜索栏",
-        ["Global Search"] = "全局搜索",
-        ["Toggle Frames In Keybinds"] = "按键绑定显示切换框",
-        ["DPI Scale"] = "DPI缩放",
-        ["Corner Radius"] = "圆角半径",
-        ["Config Saving : Enabled"] = "配置保存：已启用",
-        ["Config Saving : Unavailable"] = "配置保存：不可用",
-        ["Save Settings Now"] = "立即保存设置",
-        ["Reset Saved Settings"] = "重置已保存的设置",
-        ["Adonis Bypass"] = "Adonis 反作弊绕过",
-        ["ESP Text Size"] = "透视文字大小",
-        ["ESP Scan Delay"] = "透视扫描间隔",
-        ["ESP Max Distance"] = "透视最大距离",
-        ["ESP Highlights"] = "透视高亮",
-        ["ESP Show Distance"] = "透视显示距离",
-        ["Unload Script"] = "卸载脚本",
-        ["Message sounds"] = "消息提示音",
-        ["Message notifications"] = "消息通知",
-        ["RADIO"] = "电台",
-        ["Waiting for radio messages..."] = "等待电台消息...",
-        ["Rake's Target : ?"] = "镰鼬目标：？",
-        ["Time Until Day : ?"] = "距离白天时间：？",
-        ["Power : ?"] = "电力：？",
-        ["UI Toggle Keybind"] = "界面开关快捷键",
-        ["Toggle"] = "开关",
-        ["Hold"] = "按住",
-        ["Press"] = "按下",
-        ["None"] = "无",
-        ["Notification"] = "通知",
-        ["ALERT"] = "警告",
-        ["HOLY JESUS BLOOD HOUR IS COMING NOW"] = "天哪，血月时刻即将来临！",
-    }
 
-    local function translateObject(obj)
-        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-            local txt = obj.Text
-            if txt and translations[txt] then
-                obj.Text = translations[txt]
-            end
-        end
-        for _, child in ipairs(obj:GetChildren()) do
-            translateObject(child)
-        end
-    end
-
-    local player = game:GetService("Players").LocalPlayer
-    if not player then return end
-    local playerGui = player:WaitForChild("PlayerGui")
-    task.wait(1)  -- 等待UI完全加载
-    translateObject(playerGui)
-end
-
-task.spawn(function()
-    task.wait(1.5)
-    translateUI()
-end)
--- ==============================================
--- ================= 新增功能模块：飞行 / 免疫陷阱 / 电击棍无冷却 / 增加攻击距离 =================
-
--- ================= 1. 飞行功能（按 X 键切换，方向键控制） =================
+-- ================= 飞行功能（按 X 键切换） =================
 local fly = {
 	enabled = false,
 	active = false,
@@ -7423,8 +7160,9 @@ end
 if st.fly == nil then st.fly = false end
 setFlyEnabled(st.fly)
 task.spawn(startFly)
+-- ==============================================
 
--- ================= 2. 免疫陷阱伤害 =================
+-- ================= 免疫陷阱伤害 =================
 local trapImmunityEnabled = false
 local function antiTrap()
 	local hum = getHum()
@@ -7457,8 +7195,9 @@ end
 if st.trapImmunity == nil then st.trapImmunity = false end
 setTrapImmunity(st.trapImmunity)
 task.spawn(startTrapImmunity)
+-- ==============================================
 
--- ================= 3. 电击棍无冷却 =================
+-- ================= 电击棍无冷却 =================
 local noCooldownEnabled = false
 local function removeStunstickCooldown()
 	local lp = Plrs.LocalPlayer
@@ -7510,8 +7249,9 @@ end
 if st.stickNoCD == nil then st.stickNoCD = false end
 setNoCooldown(st.stickNoCD)
 task.spawn(startNoCooldown)
+-- ==============================================
 
--- ================= 4. 增加攻击距离（扩大触碰部件） =================
+-- ================= 增加攻击距离 =================
 local extendRangeEnabled = false
 local function extendAttackRange()
 	local lp = Plrs.LocalPlayer
@@ -7554,17 +7294,92 @@ end
 if st.extendRange == nil then st.extendRange = false end
 setExtendRange(st.extendRange)
 task.spawn(startExtendRange)
+-- ==============================================
 
--- ================= 添加 UI 开关（统一放置） =================
+-- ================= 自保甩飞（Rake靠近时弹开自己） =================
+local selfFling = {
+	enabled = false,
+	triggerDistance = 12,
+	force = 60,
+	cooldown = 2,
+	lastFlingTime = 0,
+}
+
+local function flingSelf()
+	local hrp = GET_HRP()
+	if not hrp then return end
+	local rk = ffc(Ws, "Rake")
+	if not rk then return end
+	local rkRoot = ffc(rk, "HumanoidRootPart") or ffcr(rk, "HumanoidRootPart")
+	if not rkRoot then return end
+	local dir = (hrp.Position - rkRoot.Position).Unit
+	local velocity = dir * selfFling.force + Vector3.new(0, selfFling.force * 0.6, 0)
+	hrp.AssemblyLinearVelocity = velocity
+	task.spawn(function()
+		local oldAnchored = hrp.Anchored
+		hrp.Anchored = true
+		task.wait(0.1)
+		hrp.Anchored = oldAnchored
+	end)
+end
+
+local function checkAndFling()
+	if not selfFling.enabled then return end
+	local now = tick()
+	if now - selfFling.lastFlingTime < selfFling.cooldown then return end
+	local hrp = GET_HRP()
+	if not hrp then return end
+	local rk = ffc(Ws, "Rake")
+	if not rk then return end
+	local rkRoot = ffc(rk, "HumanoidRootPart") or ffcr(rk, "HumanoidRootPart")
+	if not rkRoot then return end
+	local dist = (hrp.Position - rkRoot.Position).Magnitude
+	if dist <= selfFling.triggerDistance then
+		selfFling.lastFlingTime = now
+		flingSelf()
+		if type(Obsidian) == "table" and Obsidian.Notify then
+			Obsidian:Notify({
+				Title = "自保甩飞",
+				Content = "镰鼬靠近，已弹开",
+				Duration = 1,
+			})
+		end
+	end
+end
+
+local function startSelfFlingScanner()
+	local Run = ClonedService("RunService")
+	bind(Run.Heartbeat, function(dt)
+		if AllowRunService ~= true then return end
+		if not selfFling.enabled then return end
+		if math.floor(tick() * 3) % 3 == 0 then
+			checkAndFling()
+		end
+	end)
+end
+
+function setSelfFlingEnabled(enabled) selfFling.enabled = enabled == true end
+function setSelfFlingDistance(value) selfFling.triggerDistance = math.clamp(value, 5, 25) end
+function setSelfFlingForce(value) selfFling.force = math.clamp(value, 20, 150) end
+
+if st.selfFling == nil then st.selfFling = false end
+if st.selfFlingDistance == nil then st.selfFlingDistance = 12 end
+if st.selfFlingForce == nil then st.selfFlingForce = 60 end
+setSelfFlingEnabled(st.selfFling)
+setSelfFlingDistance(st.selfFlingDistance)
+setSelfFlingForce(st.selfFlingForce)
+
+task.spawn(startSelfFlingScanner)
+-- ==============================================
+
+-- 添加 UI 控件（确保所有新增功能的开关出现在对应标签页）
 task.spawn(function()
-	-- 等待标签页就绪
-	for i = 1, 15 do
+	for i = 1, 10 do
 		if type(ClientTab) == "table" and type(ClientTab.CreateToggle) == "function" then
 			break
 		end
 		task.wait(0.5)
 	end
-
 	if type(ClientTab) == "table" then
 		ClientTab:CreateToggle({
 			Name = "飞行模式 (按 X 切换)",
@@ -7584,6 +7399,40 @@ task.spawn(function()
 				st.trapImmunity = state == true
 				cfgSet("trapImmunity", st.trapImmunity)
 				setTrapImmunity(st.trapImmunity)
+			end,
+		})
+		ClientTab:CreateToggle({
+			Name = "自保甩飞 (镰鼬靠近弹开自己)",
+			CurrentValue = st.selfFling == true,
+			Flag = "SelfFling",
+			Callback = function(state)
+				st.selfFling = state == true
+				cfgSet("selfFling", st.selfFling)
+				setSelfFlingEnabled(st.selfFling)
+			end,
+		})
+		ClientTab:CreateSlider({
+			Name = "甩飞触发距离 (米)",
+			Range = {5, 25},
+			Increment = 1,
+			CurrentValue = st.selfFlingDistance,
+			Flag = "SelfFlingDistance",
+			Callback = function(v)
+				st.selfFlingDistance = math.clamp(tonumber(v) or 12, 5, 25)
+				cfgSet("selfFlingDistance", st.selfFlingDistance)
+				setSelfFlingDistance(st.selfFlingDistance)
+			end,
+		})
+		ClientTab:CreateSlider({
+			Name = "甩飞力度",
+			Range = {20, 150},
+			Increment = 5,
+			CurrentValue = st.selfFlingForce,
+			Flag = "SelfFlingForce",
+			Callback = function(v)
+				st.selfFlingForce = math.clamp(tonumber(v) or 60, 20, 150)
+				cfgSet("selfFlingForce", st.selfFlingForce)
+				setSelfFlingForce(st.selfFlingForce)
 			end,
 		})
 	end
@@ -7611,179 +7460,5 @@ task.spawn(function()
 		})
 	end
 end)
--- ======================================-- ================= 甩飞 Rake（击中时施加巨大速度） =================
-local flingRake = {
-	enabled = false,
-	force = 150,              -- 甩飞力度
-	upward = true,            -- 是否向上甩
-}
-
-local function flingRakeEntity()
-	local rk = ffc(Ws, "Rake")
-	if not rk then return end
-	local root = ffc(rk, "HumanoidRootPart") or ffcr(rk, "HumanoidRootPart")
-	if not root then return end
-	-- 给 Rake 施加瞬间速度
-	local vel = Vector3.new(0, 0, 0)
-	local hrp = GET_HRP()
-	if hrp then
-		local dir = (root.Position - hrp.Position).Unit
-		vel = dir * flingRake.force
-	end
-	if flingRake.upward then
-		vel = vel + Vector3.new(0, flingRake.force, 0)
-	end
-	root.AssemblyLinearVelocity = vel
-	root.AssemblyAngularVelocity = Vector3.new(math.random(-50, 50), math.random(-50, 50), math.random(-50, 50))
+	clientBypass.buildUi()
 end
-
--- 监听电击棍击中事件（原脚本已有 killaura 或手动攻击）
-local originalStickHit = nil
-local function hookStickHit()
-	-- 方法：找到 StunStick 的 Event 远程事件，拦截 FireServer 参数
-	-- 简单版：每帧检测是否正在攻击（通过心跳），但那样不准确。
-	-- 更可靠：如果开启了镰鼬自动攻击（RakeKillAura），在攻击函数中加入甩飞逻辑。
-	-- 这里为了简化，提供一个单独的按钮：点击按钮立即甩飞最近的 Rake。
-end
-
-function setFlingRakeEnabled(enabled)
-	flingRake.enabled = enabled == true
-end
-
--- 提供一个手动甩飞按钮（方便测试）
-local function manualFling()
-	if not flingRake.enabled then return end
-	flingRakeEntity()
-end
-
--- 如果您已经开启了“Rake Killaura”，可以在原攻击循环中加入甩飞。
--- 在原脚本的 auraSwing 函数附近添加判断。
--- 但为了不修改核心代码，这里提供独立按钮。
-
--- UI 添加
-task.spawn(function()
-	for i = 1, 10 do
-		if type(ExploitsTab) == "table" and type(ExploitsTab.CreateButton) == "function" then
-			break
-		end
-		task.wait(0.5)
-	end
-	if type(ExploitsTab) ~= "table" then
-		print("[FlingRake] UI添加失败")
-		return
-	end
-	ExploitsTab:CreateToggle({
-		Name = "甩飞 Rake (击中时)",
-		CurrentValue = st.flingRake == true,
-		Flag = "FlingRake",
-		Callback = function(state)
-			st.flingRake = state == true
-			cfgSet("flingRake", st.flingRake)
-			setFlingRakeEnabled(st.flingRake)
-		end,
-	})
-	ExploitsTab:CreateButton({
-		Name = "立即甩飞 Rake (测试)",
-		Callback = function()
-			if not flingRake.enabled then
-				if type(Obsidian) == "table" then Obsidian:Notify({Title="提示", Content="请先开启甩飞开关", Duration=2}) end
-				return
-			end
-			manualFling()
-			if type(Obsidian) == "table" then Obsidian:Notify({Title="甩飞", Content="已尝试甩飞 Rake", Duration=1}) end
-		end,
-	})
-end)
-
--- 配置变量
-if st.flingRake == nil then st.flingRake = false end
-setFlingRakeEnabled(st.flingRake)
--- ======================================================
--- ================= 甩飞 Rake（击中时施加巨大速度） =================
-local flingRake = {
-	enabled = false,
-	force = 150,              -- 甩飞力度
-	upward = true,            -- 是否向上甩
-}
-
-local function flingRakeEntity()
-	local rk = ffc(Ws, "Rake")
-	if not rk then return end
-	local root = ffc(rk, "HumanoidRootPart") or ffcr(rk, "HumanoidRootPart")
-	if not root then return end
-	-- 给 Rake 施加瞬间速度
-	local vel = Vector3.new(0, 0, 0)
-	local hrp = GET_HRP()
-	if hrp then
-		local dir = (root.Position - hrp.Position).Unit
-		vel = dir * flingRake.force
-	end
-	if flingRake.upward then
-		vel = vel + Vector3.new(0, flingRake.force, 0)
-	end
-	root.AssemblyLinearVelocity = vel
-	root.AssemblyAngularVelocity = Vector3.new(math.random(-50, 50), math.random(-50, 50), math.random(-50, 50))
-end
-
--- 监听电击棍击中事件（原脚本已有 killaura 或手动攻击）
-local originalStickHit = nil
-local function hookStickHit()
-	-- 方法：找到 StunStick 的 Event 远程事件，拦截 FireServer 参数
-	-- 简单版：每帧检测是否正在攻击（通过心跳），但那样不准确。
-	-- 更可靠：如果开启了镰鼬自动攻击（RakeKillAura），在攻击函数中加入甩飞逻辑。
-	-- 这里为了简化，提供一个单独的按钮：点击按钮立即甩飞最近的 Rake。
-end
-
-function setFlingRakeEnabled(enabled)
-	flingRake.enabled = enabled == true
-end
-
--- 提供一个手动甩飞按钮（方便测试）
-local function manualFling()
-	if not flingRake.enabled then return end
-	flingRakeEntity()
-end
-
--- 如果您已经开启了“Rake Killaura”，可以在原攻击循环中加入甩飞。
--- 在原脚本的 auraSwing 函数附近添加判断。
--- 但为了不修改核心代码，这里提供独立按钮。
-
--- UI 添加
-task.spawn(function()
-	for i = 1, 10 do
-		if type(ExploitsTab) == "table" and type(ExploitsTab.CreateButton) == "function" then
-			break
-		end
-		task.wait(0.5)
-	end
-	if type(ExploitsTab) ~= "table" then
-		print("[FlingRake] UI添加失败")
-		return
-	end
-	ExploitsTab:CreateToggle({
-		Name = "甩飞 Rake (击中时)",
-		CurrentValue = st.flingRake == true,
-		Flag = "FlingRake",
-		Callback = function(state)
-			st.flingRake = state == true
-			cfgSet("flingRake", st.flingRake)
-			setFlingRakeEnabled(st.flingRake)
-		end,
-	})
-	ExploitsTab:CreateButton({
-		Name = "立即甩飞 Rake (测试)",
-		Callback = function()
-			if not flingRake.enabled then
-				if type(Obsidian) == "table" then Obsidian:Notify({Title="提示", Content="请先开启甩飞开关", Duration=2}) end
-				return
-			end
-			manualFling()
-			if type(Obsidian) == "table" then Obsidian:Notify({Title="甩飞", Content="已尝试甩飞 Rake", Duration=1}) end
-		end,
-	})
-end)
-
--- 配置变量
-if st.flingRake == nil then st.flingRake = false end
-setFlingRakeEnabled(st.flingRake)
--- ==============================================
